@@ -8,17 +8,13 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Function.h"
-#include "llvm/IR/Type.h"
 #include "llvm/IR/Verifier.h"
-#include "llvm/IR/Constants.h"
-#include "llvm/IR/BasicBlock.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include "../include/quanta.h"
+std::map<int, int> BinopPrecedence;
 
 // --- GLOBAL DEFINITIONS ---
-// We define them here (NO 'extern') so the memory is actually allocated.
-// codegen.cpp will access these using 'extern'.
 std::unique_ptr<llvm::LLVMContext> TheContext;
 std::unique_ptr<llvm::Module> TheModule;
 std::unique_ptr<llvm::IRBuilder<>> Builder;
@@ -28,6 +24,18 @@ int main(int argc, char* argv[]) {
         std::cerr << "Usage: quanta <file.qnt>" << std::endl;
         return 1;
     }
+
+
+    BinopPrecedence['<'] = 10;
+    BinopPrecedence['>'] = 10;
+    BinopPrecedence['+'] = 20;
+    BinopPrecedence['-'] = 20;
+    BinopPrecedence['*'] = 40;
+    BinopPrecedence['/'] = 40;
+    
+    // [FIX] Add this line!
+    BinopPrecedence[TOK_EQ] = 5;
+   
 
     // 1. Read the Source File
     std::ifstream file(argv[1]);
@@ -39,54 +47,44 @@ int main(int argc, char* argv[]) {
     buffer << file.rdbuf();
     std::string source = buffer.str();
 
-    // 2. Initialize and Parse
+    // 2. Initialize
     initializeModule();
     
+    // 3. Tokenize
     auto tokens = tokenize(source);
-//     std::cout << "DEBUG: Tokens found: ";
-// for(auto &t : tokens) std::cout << "[" << t.value << "] ";
-// std::cout << std::endl;
 
-    // Assuming parse returns a vector of statements (based on your loop below)
-    auto statements = parse(tokens); 
-    
+    // 4. Parse
+    // FIX: parse() now returns a single 'FunctionAST' pointer, NOT a vector.
+    auto funcNode = parse(tokens); 
 
-    // 3. Create the implicit 'main' function
-    // This allows users to write loose code like "x = 10" without wrapping it in a function.
-    llvm::FunctionType *FT = llvm::FunctionType::get(llvm::Type::getInt32Ty(*TheContext), false);
-    llvm::Function *MainFunc = llvm::Function::Create(FT, llvm::Function::ExternalLinkage, "main", TheModule.get());
-    
-    llvm::BasicBlock *BB = llvm::BasicBlock::Create(*TheContext, "entry", MainFunc);
-    Builder->SetInsertPoint(BB);
-
-    // 4. Compile AST to IR
-    for (const auto& stmt : statements) {
-        if (stmt) stmt->codegen();
+    // Check for Parser Errors
+    if (HasError || !funcNode) {
+        std::cerr << "[Summary] Compilation failed due to errors above." << std::endl;
+        return 1;
     }
 
-    // Always return 0 by default if the user script doesn't
-    Builder->CreateRet(llvm::ConstantInt::get(*TheContext, llvm::APInt(32, 0)));
-    llvm::verifyFunction(*MainFunc);
+    // 5. Compile AST to IR
+    // FIX: We just call codegen() on the function node.
+    // It automatically creates the 'main' function and processes the body.
+    if (!funcNode->codegen()) {
+        std::cerr << "[ERROR] Code Generation failed." << std::endl;
+        return 1;
+    }
 
-    // 5. Generate Object File
+    // 6. Generate Object File
     generateObjectCode();
 
-    // 6. Link and Auto-Run
-    
-    // int linkResult = system("clang output.o -o my_quanta_app -Wno-override-module");
-    // Update this line in main.cpp
-int linkResult = system("clang output.o -o my_quanta_app");
+    // 7. Link and Auto-Run
+    std::cout << "[INFO] Compiling object code..." << std::endl;
+    int linkResult = system("clang output.o -o my_quanta_app");
     
     if (linkResult == 0) {
         std::cout << "SUCCESS! Running program..." << std::endl;
         std::cout << "------------------------------------" << std::endl;
 
-        // Run the executable immediately
         int exitCode = system("./my_quanta_app");
-        
-        // Convert raw system exit code to actual return value
         int actualReturn = exitCode >> 8;
-
+        
         std::cout << "\n------------------------------------" << std::endl;
         std::cout << "Program exited with code: " << actualReturn << std::endl;
     } else {
