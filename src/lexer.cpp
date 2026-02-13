@@ -51,6 +51,18 @@ std::vector<Token> tokenize(std::string source) {
             i++;
             continue;
         }
+        if (c == '+' && i + 1 < source.length() && source[i + 1] == '+') {
+            tokens.push_back({TOK_INC, "++", line});
+            i += 2; // Skip both '+'
+            continue;
+        }
+
+        // 2. Handle --
+        if (c == '-' && i + 1 < source.length() && source[i + 1] == '-') {
+            tokens.push_back({TOK_DEC, "--", line});
+            i += 2; // Skip both '-'
+            continue;
+        }
 
         // --- 4. CHAR LITERALS ---
         if (c == '\'') { 
@@ -61,6 +73,8 @@ std::vector<Token> tokenize(std::string source) {
             continue;
         }
 
+
+        
         // --- 5. STRING LITERALS ---
         if (c == '"') {
             std::string strVal;
@@ -73,20 +87,6 @@ std::vector<Token> tokenize(std::string source) {
             tokens.push_back({TOK_STRING, strVal, line}); 
             continue;
         }
-
-        if (c == '+' && i + 1 < source.length() && source[i+1] == '+') {
-            tokens.push_back({TOK_INC, "++", line});
-            i += 2; // Skip both '+'
-            continue;
-        }
-
-        // --- 4. DECREMENT (--) ---
-        if (c == '-' && i + 1 < source.length() && source[i+1] == '-') {
-            tokens.push_back({TOK_DEC, "--", line});
-            i += 2; // Skip both '-'
-            continue;
-        }
-
 
         // --- 6. IDENTIFIERS & KEYWORDS ---
         // UPDATED: Allow starting with Underscore (_) or Letter
@@ -111,6 +111,10 @@ std::vector<Token> tokenize(std::string source) {
                    else if (idStr == "if") type = TOK_IF;
             else if (idStr == "elif") type = TOK_ELIF; 
             else if (idStr == "else") type = TOK_ELSE;
+            else if (idStr == "loop") type= TOK_LOOP;
+            else if (idStr == "return") type = TOK_RETURN;
+            else if (idStr == "void") type = TOK_VOID;
+            
             
             // --- DETECT "int" and "intN" ---
             else if (idStr.substr(0, 3) == "int") {
@@ -217,10 +221,30 @@ std::vector<Token> tokenize(std::string source) {
             i += 2; // Eat both chars
             continue;
         }
+        // 1. Not Equal (!=)
+        if (c == '!' && i + 1 < source.length() && source[i+1] == '=') {
+            tokens.push_back({TOK_NEQ, "!=", line});
+            i += 2; 
+            continue;
+        }
+
+        // 2. Greater Than or Equal (>=)
+        if (c == '>' && i + 1 < source.length() && source[i+1] == '=') {
+            tokens.push_back({TOK_GEQ, ">=", line});
+            i += 2; 
+            continue;
+        }
+
+        // 3. Less Than or Equal (<=)
+        if (c == '<' && i + 1 < source.length() && source[i+1] == '=') {
+            tokens.push_back({TOK_LEQ, "<=", line});
+            i += 2; 
+            continue;
+        }
 
         // Single Character Symbols
         if (c == '+' || c == '-' || c == '*' || c == '/' || 
-            c == '=' || c == '(' || c == ')' || c == '<' || c == '>' || c == ';' || c == '{' || c == '}') {
+            c == '=' || c == '(' || c == ')' || c == '<' || c == '>' || c == ';' || c == '{' || c == '}'|| c == '%') {
             
             tokens.push_back({(int)c, std::string(1, c), line});
             i++;

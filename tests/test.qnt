@@ -1,132 +1,303 @@
-@ ==========================================
-@ QUANTA COMPILER - COMPREHENSIVE TEST SUITE
-@ ==========================================
-
-'''
-This is a multi-line comment.
-It tests that the lexer correctly skips blocks of text.
-'''
-
-print("--- 1. PRIMITIVE TYPES & DECLARATIONS ---");
-var i = 42;             @ Integer
-var f = 3.14;           @ Float
-var b = true;           @ Bool (prints 1)
-var c = 'A';            @ Char
-var s = "Hello Quanta"; @ String
-
-print(i);
-print(f);
-print(b);
-print(c);
-print(s);
+@ @ ==========================================
+@ @  QUANTA COMPILER MASTER TEST SUITE
+@ @ ==========================================
 
 
 
-print("--- 2. ARITHMETIC & MIXED MATH ---");
-x = 10;
-y = 20;
-print(x + y);       @ Addition (30)
-print(x - y);       @ Subtraction (-10)
-print(y * 2);       @ Multiplication (40)
-print(y / x);       @ Division (2)
+@ print("--- 1. Variable Assignment & Types ---");
+
+@ @ Implicit Declaration (Auto-detection)
+@ x = 100;            
+@ print(x);           
+@ print(type(x));     
+
+@ pi = 3.14159;
+@ print(pi);          
+@ print(type(pi));    
+
+@ msg = "Hello Quanta";
+@ print(msg);         
+@ print(type(msg));   
+
+@ flag = true;
+@ print(flag);        
+@ print(type(flag));  
+
+@ @ Explicit Declaration
+@ var y = 50;
+@ print(y);           
+
+@ @ Reassignment
+@ x = 200;
+@ print(x);           
+
+
+@ print("--- 2. Arithmetic Operations ---");
+
+@ a = 10;
+@ b = 3;
+
+@ print(a + b);       @ Add: 13
+@ print(a - b);       @ Sub: 7
+@ print(a * b);       @ Mul: 30
+@ print(a / b);       @ Div: 3 (Integer Division)
+
+@ f1 = 10.5;
+@ f2 = 2.5;
+@ print(f1 / f2);     @ Float Div: 4.200000
+
+@ @ Mixed Math (Auto-Promotion to Float)
+@ print(10 + 2.5);    @ Expected: 12.500000
+
+
+@ print("--- 3. Order of Operations (BODMAS) ---");
+
+@ print(2 + 3 * 4);         @ Expected: 14 (Not 20)
+@ print((2 + 3) * 4);       @ Expected: 20
+@ print(10 - 10 / 2);       @ Expected: 5
+@ print(5 + 5 == 10);       @ Expected: 1 (True)
+
+
+@ print("--- 4. Logic & Comparisons ---");
+
+@ val = 10;
+@ print(val == 10);   @ Expected: 1 (True)
+@ print(val < 20);    @ Expected: 1 (True)
+@ print(val > 20);    @ Expected: 0 (False)
+
+
+@ print("--- 5. Control Flow (If / Elif / Else) ---");
+
+@ check = 50;
+
+@ @ Case 1: Simple If
+@ if (check == 50) {
+@     print("Check is 50");
+@ }
+
+@ @ Case 2: If-Else
+@ if (check > 100) {
+@     print("Big");
+@ } else {
+@     print("Small");      
+@ }
+
+@ @ Case 3: If-Elif-Else Chain
+@ score = 75;
+
+@ if (score > 90) {
+@     print("Grade A");
+@ } elif (score > 70) {
+@     print("Grade B");    
+@ } elif (score > 50) {
+@     print("Grade C");
+@ } else {
+@     print("Fail");
+@ }
+
+@ @ Case 4: Nested If (Deep Logic)
+@ nested_val = 10;
+@ if (nested_val == 10) {
+@     print("Layer 1");
+@     if (nested_val > 5) {
+@         print("Layer 2");
+@     }
+@ }
+
+
+@ print("--- 6. Scoping (Blocks) ---");
+
+@ global_var = 99;
+@ if (1 == 1) {
+@     local_var = 1;
+@     print(global_var + local_var); @ Expected: 100
+@ }
+
+@ print("--- 7. Introspection ---");
+
+@ my_int = 12345;
+@ print(bytesize(my_int));  @ Expected: 8 (64-bit default)
+@ print(type(my_int));      @ Expected: int
+
+@ print("--- TEST COMPLETE ---");
+
+@ print(11111); @ Separator
+
+@ int a = 10;
+@ print(a);     @ 10
+
+@ @ Test Postfix (a++) -> Prints OLD value (10), then a becomes 11
+@ print(a++);   @ 10 
+@ print(a);     @ 11
+
+@ @ Test Prefix (++a) -> Increments to 12, then prints NEW value (12)
+@ print(++a);   @ 12
+@ print(a);     @ 12
+
+@ @ Test Decrement
+@ print(a--);   @ 12
+@ print(a);     @11
+@ b=30
+
+@ int a = 5;
+@ int b = 4;
+@ int result = a++ * b--;
+
+@ print(result); @ Expected: 20
+@ print(a);      @ Expected: 6
+@ print(b);      @ Expected: 3
+
+
+@ if(result>20){
+@     print("Yes")
+@ }
+@ else{
+@     print("Not")
+@ }
+
+
+@ print("loop Test --------------------loop Test")
+@ int i = 0;
+
+@ print(111); 
+
+@ loop (i < 5) {
+@     print(i);
+@     i++;
+@ }
+
+@ print(222); 
 
 
 
+@ print(1111);        
+@ int a = 10;
+@ int b = 20;
+@ int result = a + b; 
+@ print(result);
 
 
 
-@ Float Math (Mixed types should auto-cast to float)
-f_res = 10 + 5.5;
-print(f_res);       @ 15.500000
+     
+@ if (result < 50) {
+@     print(1);       
+@ } else {
+@     print(0);       
+@ }
+
+@ if (result < 10) {
+@     print(0);       
+@ } else {
+@     print(1);      
+@ }
 
 
 
+@ print(3333);    
+@ int i = 0;
 
-print("--- 3. INCREMENT & DECREMENT (NEW) ---");
-count = 10;
+@ loop (i < 3) {
+@     print(8);      
+@     print(i);       
+@     i = i + 1;     
+@ }
+@ print(9999);      
 
-@ Postfix: Use value THEN update
-print(count++);     @ Should print 10
-print(count);       @ Should print 11
-
-
-
-
-@ Prefix: Update THEN use value
-print(++count);     @ Should print 12
-print(count);       @ Should print 12
-
+@ int a=1;
+@ a="hello"
+@ int5 a=1
 
 
 
-@ Decrement
-print(count--);     @ Should print 12
-print(count);       @ Should print 11
-print(--count);     @ Should print 10
+@ print("--- Testing Greater Than or Equal (>=) ---");
 
+@ int a = 10;
+@ int b = 10;
+@ int c = 5;
 
+@ if (a >= b) {
+@     print("PASS: 10 >= 10 is True"); 
+@ } else {
+@     print("FAIL: 10 >= 10 should be True");
+@ }
 
-print("--- 4. LOGIC & COMPARISONS ---");
-print(10 > 5);      @ 1 (True)
-print(10 < 5);      @ 0 (False)
-print(10 == 10);    @ 1 (True)
-print(5.5 == 5.5);  @ 1 (True - Float comparison)
+@ loop (i < 3) {
+   
+@     print(i);       
+@     i = i + 1;     
+@ }
 
+@ if (a >= c) {
+@     print("PASS: 10 >= 5 is True");
+@ } else {
+@     print("FAIL: 10 >= 5 should be True");
+@ }
 
+@ if (c >= a) {
+@     print("FAIL: 5 >= 10 should be False");
+@ } else {
+@     print("PASS: 5 >= 10 is False");
+@ }
+@ a=5
+@ if a%2==0{
+@     print("even");
+@ }
+@ else{
+@     print("odd");
+@ }
 
+@ print(a%2)
 
+@ --- 1. Basic Script Mode (Top Level) ---
+print("--- TEST START ---");
 
+int x = 10;
+int y = 20;
 
-print("--- 5. INTROSPECTION (sizeof / type) ---");
-print(type(i));     @ int
+print("Addition:")
+print(x + y)
 
-print(type(f));     @ float
-print(type(s));     @ string
-
-
-
-
-print("--- 6. CONTROL FLOW ---");
-val = 50;
-
-if (val > 100) {
-    print("Big");
-} elif (val > 10) {
-    print("Medium"); @ This should print
+@ @ --- 2. Control Flow (If / Else) ---
+print("Logic Check:");
+if (x < y) {
+    print("X is smaller (Correct)");
 } else {
-    print("Small");
+    print("X is bigger (Wrong)");
 }
 
-print("--- 7. OPTIMIZER TEST (AUTO-SWITCH) ---");
-@ The backend should detect this dense chain and 
-@ convert it into a Jump Table or Constant Fold it.
-
-opt_val = 3;
-
-if (opt_val == 1) {
-    print("Case 1");
-} elif (opt_val == 2) {
-    print("Case 2");
-} elif (opt_val == 3) {
-    print("Case 3: Optimized!"); @ Expected
-} elif (opt_val == 4) {
-    print("Case 4");
-} else {
-    print("Default");
+@ --- 3. Loops ---
+print("Counting Loop:");
+int i = 0;
+loop (i < 3) {
+    print(i);
+    i++;
 }
 
-print("--- TEST COMPLETE ---");
+@ --- 4. Function Definition ---
+@ Defining a function that returns a value
+int getMagicNumber() {
+    print("Hello")
+    @ return 42;
+}
 
-a = 2;
-b = 10;
+@ @ Defining a void function
+void sayHello() {
+    print("Hello from inside a function!");
+}
 
-@ Step-by-Step Execution:
-@ 1. ++a: 'a' becomes 3. Value used is 3.
-@ 2. b--: Value used is 10. 'b' becomes 9.
-@ 3. Multiply: 3 * 10 = 30.
 
-result = a++ * b--;
+print("Function Call Results:");
+print(getMagicNumber());
+sayHello();
 
-print(result); @ Should be 30
-print(a);      @ Should be 3
-print(b);      @ Should be 9
+@ --- 6. Different Types ---
+print("Type Checks:");
+float pi = 3.14;
+print(pi);
+
+bool isCool = true;
+if (isCool) {
+    print("Quanta is cool.");
+}
+
+print("--- TEST END ---");

@@ -12,7 +12,6 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include "../include/quanta.h"
-std::map<int, int> BinopPrecedence;
 
 // --- GLOBAL DEFINITIONS ---
 std::unique_ptr<llvm::LLVMContext> TheContext;
@@ -32,6 +31,10 @@ int main(int argc, char* argv[]) {
     BinopPrecedence['-'] = 20;
     BinopPrecedence['*'] = 40;
     BinopPrecedence['/'] = 40;
+    BinopPrecedence[TOK_GEQ] = 10;  // >=
+    BinopPrecedence[TOK_LEQ] = 10;  // <=
+    BinopPrecedence[TOK_NEQ] = 5;   // !=
+    BinopPrecedence['%'] = 40;
     
     // [FIX] Add this line!
     BinopPrecedence[TOK_EQ] = 5;
@@ -53,27 +56,51 @@ int main(int argc, char* argv[]) {
     // 3. Tokenize
     auto tokens = tokenize(source);
 
+    // std::cout << "\n[TRACE] 1. LEXER OUTPUT:" << std::endl;
+    // std::cout << "--------------------------------" << std::endl;
+    // for (const auto& t : tokens) {
+    //     // Print Token Type and Value
+    //     std::cout << "Token Type: " << t.type << " | Value: '" << t.value << "'" << std::endl;
+    // }
+    // std::cout << "--------------------------------\n" << std::endl;
+
     // 4. Parse
     // FIX: parse() now returns a single 'FunctionAST' pointer, NOT a vector.
-    auto funcNode = parse(tokens); 
+    ProgramAST program = parse(tokens);
 
     // Check for Parser Errors
-    if (HasError || !funcNode) {
-        std::cerr << "[Summary] Compilation failed due to errors above." << std::endl;
+   if (HasError) {
+        std::cerr << "[Summary] Compilation failed due to parsing errors." << std::endl;
         return 1;
     }
+    
 
     // 5. Compile AST to IR
-    // FIX: We just call codegen() on the function node.
-    // It automatically creates the 'main' function and processes the body.
-    if (!funcNode->codegen()) {
-        std::cerr << "[ERROR] Code Generation failed." << std::endl;
+    bool foundMain = false;
+
+    // Loop through every function (main, add, etc.)
+    for (const auto& func : program.functions) {
+        // Check if we found 'main'
+        if (func->getName() == "main") {
+            foundMain = true;
+        }
+
+        // Generate IR for this function
+        if (!func->codegen()) {
+            std::cerr << "[ERROR] Code Generation failed for function: " << func->getName() << std::endl;
+            return 1;
+        }
+    }
+
+    // Ensure a 'main' function exists (either explicit or auto-generated)
+    if (!foundMain) {
+        std::cerr << "Error: No 'main' function found! (And no top-level script code was valid)" << std::endl;
         return 1;
     }
 
     // 6. Generate Object File
     generateObjectCode();
-
+    
     // 7. Link and Auto-Run
     std::cout << "[INFO] Compiling object code..." << std::endl;
     int linkResult = system("clang output.o -o my_quanta_app");
@@ -91,6 +118,6 @@ int main(int argc, char* argv[]) {
         std::cerr << "Linking Failed." << std::endl;
         return 1;
     }
-
+   
     return 0;
 }

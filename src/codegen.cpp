@@ -11,14 +11,14 @@
 #include "llvm/TargetParser/Host.h"
 #include "llvm/TargetParser/Triple.h"
 #include "llvm/IR/LegacyPassManager.h"
-
-#include "llvm/Pass.h"                        // Needed for 'FunctionPass'
-#include "llvm/Transforms/Scalar.h"           // Needed for 'PromoteMemoryToRegister' & 'SimplifyCFG'
-#include "llvm/Transforms/Utils.h"
-#include "llvm/Transforms/InstCombine/InstCombine.h"
 #include <map>
 #include <iostream>
 #include <vector>
+
+llvm::Value *LogErrorV(const char *Str) {
+    std::cerr << "[Codegen Error] " << Str << std::endl;
+    return nullptr;
+}
 
 // --- GLOBALS ---
 extern std::unique_ptr<llvm::LLVMContext> TheContext;
@@ -34,34 +34,6 @@ struct VarInfo {
 
 
 static std::map<std::string, VarInfo> NamedValues;
-// Global Optimizer Engine
-static std::unique_ptr<llvm::legacy::FunctionPassManager> TheFPM;
-
-void InitializeOptimizer() {
-    TheFPM = std::make_unique<llvm::legacy::FunctionPassManager>(TheModule.get());
-
-    // 1. Promote Stack to Registers (CRITICAL)
-    // Your 'var x' is stored in memory (alloca). 
-    // This pass moves it to a CPU register so LLVM can see that 
-    // "x is the same variable" in every if-check.
-    TheFPM->add(llvm::createPromoteMemoryToRegisterPass());
-
-    // 2. Combine Instructions
-    // Cleans up math (e.g., 1+2 -> 3) so comparisons are obvious.
-    TheFPM->add(llvm::createInstructionCombiningPass());
-
-    // 3. Reassociate Expressions
-    // Rearranges (x + 1) + 2 -> x + (1 + 2)
-    TheFPM->add(llvm::createReassociatePass());
-
-    // 4. Simplify Control Flow (THE AUTO-SWITCH PASS)
-    // This detects the "if-else chain" pattern and converts it 
-    // into a single 'switch' instruction or a Jump Table.
-    TheFPM->add(llvm::createCFGSimplificationPass());
-
-    // Initialize the pipeline
-    TheFPM->doInitialization();
-}
 
 // --- 1. SETUP ---
 void initializeModule() {
@@ -128,7 +100,8 @@ llvm::Value *VarDeclAST::codegen() {
         else TargetType = llvm::Type::getDoubleTy(*TheContext);
     }
     else if (Type == "string") {
-        TargetType = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(*TheContext));
+        // TargetType = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(*TheContext));
+        TargetType = llvm::PointerType::getUnqual(*TheContext);
     }
     else {
         TargetType = llvm::IntegerType::get(*TheContext, 32);
@@ -374,6 +347,54 @@ llvm::Value *BinaryExprAST::codegen() {
         case '>':
             L = isFloat ? Builder->CreateFCmpOGT(L, R, "cmp") : Builder->CreateICmpSGT(L, R, "cmp");
             return Builder->CreateZExt(L, llvm::Type::getInt32Ty(*TheContext), "bool_int");
+        // ... existing cases (+, -, *, /) ...
+
+        case '%': {
+        // 1. If both are Integers, use Integer Remainder (SRem)
+        if (L->getType()->isIntegerTy() && R->getType()->isIntegerTy()) {
+            return Builder->CreateSRem(L, R, "remtmp");
+        }
+        
+        // 2. If both are Floating Point, use Float Remainder (FRem)
+        if (L->getType()->isFloatingPointTy() && R->getType()->isFloatingPointTy()) {
+            return Builder->CreateFRem(L, R, "remtmp");
+        }
+
+        // 3. Fallback: If types are mixed (e.g. 5 % 2.5), ensure both are floats
+        // (Assuming you have a helper to cast mixed types, or just error out)
+        return LogErrorV("Modulo requires both operands to be Integers or both Doubles.");
+    }
+
+   
+
+        // --- NEW: Greater Than or Equal (>=) ---
+        case TOK_GEQ:
+            if (isFloat) 
+                L = Builder->CreateFCmpOGE(L, R, "geq_tmp"); // Ordered Greater Equal
+            else 
+                L = Builder->CreateICmpSGE(L, R, "geq_tmp"); // Signed Greater Equal
+            
+            return Builder->CreateZExt(L, llvm::Type::getInt32Ty(*TheContext), "bool_int");
+
+        // --- NEW: Less Than or Equal (<=) ---
+        case TOK_LEQ:
+            if (isFloat) 
+                L = Builder->CreateFCmpOLE(L, R, "leq_tmp"); // Ordered Less Equal
+            else 
+                L = Builder->CreateICmpSLE(L, R, "leq_tmp"); // Signed Less Equal
+            
+            return Builder->CreateZExt(L, llvm::Type::getInt32Ty(*TheContext), "bool_int");
+
+        // --- NEW: Not Equal (!=) ---
+        case TOK_NEQ:
+            if (isFloat) 
+                L = Builder->CreateFCmpONE(L, R, "neq_tmp"); // Ordered Not Equal
+            else 
+                L = Builder->CreateICmpNE(L, R, "neq_tmp");  // Not Equal
+            
+            return Builder->CreateZExt(L, llvm::Type::getInt32Ty(*TheContext), "bool_int");
+
+        // ... existing case for TOK_EQ ...
         case TOK_EQ:
             if (isFloat) {
                 // FCmpOEQ = Floating Point Compare Ordered EQual
@@ -391,7 +412,29 @@ llvm::Value *BinaryExprAST::codegen() {
 }
 
 
+llvm::Value *UpdateExprAST::codegen() {
+    // 1. Find variable address
+    if (NamedValues.find(Name) == NamedValues.end())
+        return LogErrorV("Unknown variable in update expression");
+    
+    llvm::AllocaInst *V = NamedValues[Name].Alloca; // Ensure you use .Alloca
 
+    // 2. Load current value
+    llvm::Value *CurVal = Builder->CreateLoad(V->getAllocatedType(), V, Name.c_str());
+
+    // 3. Add or Sub 1
+    llvm::Value *One = llvm::ConstantInt::get(CurVal->getType(), 1);
+    llvm::Value *NextVal;
+    
+    if (IsIncrement) NextVal = Builder->CreateAdd(CurVal, One, "inc_tmp");
+    else             NextVal = Builder->CreateSub(CurVal, One, "dec_tmp");
+
+    // 4. Store new value
+    Builder->CreateStore(NextVal, V);
+
+    // 5. Return (Prefix = New, Postfix = Old)
+    return IsPrefix ? NextVal : CurVal;
+}
 // --- 6. PRINT GENERATION (FIXED FOR FLOATS) ---
 llvm::Value *PrintAST::codegen() {
     llvm::Value *Val = Expr->codegen();
@@ -489,7 +532,18 @@ llvm::Value *TypeofAST::codegen() {
     std::string typeName = NamedValues[Name].TypeName;
 
     // 3. Create a Global String Pointer (standard string in LLVM)
-    return Builder->CreateGlobalStringPtr(typeName);
+    // return Builder->CreateGlobalStringPtr(typeName);
+    // 1. Create the global string array
+auto *GlobalStr = Builder->CreateGlobalString(typeName, "global_str");
+
+// 2. Get a pointer to the first character (index 0)
+// This converts [N x i8] (array) -> i8* (pointer)
+return Builder->CreateConstGEP2_32(
+    GlobalStr->getValueType(), // The array type
+    GlobalStr,                 // The variable
+    0, 0,                      // Indices
+    "str_ptr"
+);
 }
 
 // --- Generate Code for IF / ELSE ---
@@ -555,48 +609,6 @@ llvm::Value *IfExprAST::codegen() {
     return llvm::Constant::getNullValue(llvm::Type::getDoubleTy(*TheContext));
 }
 
-llvm::Value *UpdateExprAST::codegen() {
-    // 1. Look up Variable
-    if (NamedValues.find(Name) == NamedValues.end()) {
-        return LogErrorV("Unknown variable in update expression");
-    }
-    VarInfo& info = NamedValues[Name];
-    
-    // 2. Load Current Value
-    llvm::Value *CurVal = Builder->CreateLoad(info.Type, info.Alloca, Name.c_str());
-    
-    // 3. Prepare "One" (Handle Float vs Int)
-    llvm::Value *One = nullptr;
-    if (CurVal->getType()->isFloatingPointTy()) {
-        One = llvm::ConstantFP::get(CurVal->getType(), 1.0);
-    } else {
-        // Handles i1, i8, i32, i64
-        One = llvm::ConstantInt::get(CurVal->getType(), 1);
-    }
-
-    // 4. Do Math (+ or -)
-    llvm::Value *NewVal = nullptr;
-    if (IsIncrement) {
-        if (CurVal->getType()->isFloatingPointTy())
-            NewVal = Builder->CreateFAdd(CurVal, One, "inc_tmp");
-        else
-            NewVal = Builder->CreateAdd(CurVal, One, "inc_tmp");
-    } else {
-        if (CurVal->getType()->isFloatingPointTy())
-            NewVal = Builder->CreateFSub(CurVal, One, "dec_tmp");
-        else
-            NewVal = Builder->CreateSub(CurVal, One, "dec_tmp");
-    }
-
-    // 5. Save Result
-    Builder->CreateStore(NewVal, info.Alloca);
-
-    // 6. Return Value
-    // Prefix (++a) returns NEW value. 
-    // Postfix (a++) returns OLD value.
-    return IsPrefix ? NewVal : CurVal;
-}
-
 
 // --- Generate Code for a Block { ... } ---
 llvm::Value *BlockAST::codegen() {
@@ -613,37 +625,13 @@ llvm::Value *BlockAST::codegen() {
 }
 // --- 7. FUNCTION WRAPPER ---
 llvm::Function *FunctionAST::codegen() {
-    // 0. Lazy Initialization: Ensure Optimizer is ready
-    if (!TheFPM) {
-        InitializeOptimizer();
-    }
-
-    // 1. Create Function
     llvm::FunctionType *FT = llvm::FunctionType::get(llvm::Type::getInt32Ty(*TheContext), false);
     llvm::Function *F = llvm::Function::Create(FT, llvm::Function::ExternalLinkage, Name, TheModule.get());
-    
-    // 2. Create Entry Block
     llvm::BasicBlock *BB = llvm::BasicBlock::Create(*TheContext, "entry", F);
     Builder->SetInsertPoint(BB);
-
-    // 3. Generate Body Code
-    for (auto &node : Body) {
-        node->codegen();
-    }
-
-    // 4. Return Statement (Default 0)
+    for (auto &node : Body) node->codegen();
     Builder->CreateRet(llvm::ConstantInt::get(*TheContext, llvm::APInt(32, 0)));
-
-    // 5. Verify Function Logic
-    if (llvm::verifyFunction(*F, &llvm::errs())) {
-        std::cerr << "Error: Function verification failed.\n";
-        return nullptr;
-    }
-
-    // 6. RUN THE OPTIMIZER (Auto-Switch Magic)
-    // This modifies the IR in-place, converting compatible if-else chains into switches.
-    TheFPM->run(*F);
-    
+    llvm::verifyFunction(*F);
     return F;
 }
 
@@ -671,4 +659,78 @@ void generateObjectCode() {
     pass.run(*TheModule);
     dest.flush();
     std::cout << "[Success] Native object file 'output.o' created!" << std::endl;
+}
+
+llvm::Value *LoopAST::codegen() {
+    llvm::Function *TheFunction = Builder->GetInsertBlock()->getParent();
+
+    // 1. Create Basic Blocks for the loop structure
+    llvm::BasicBlock *CondBB = llvm::BasicBlock::Create(*TheContext, "loop_cond", TheFunction);
+    llvm::BasicBlock *BodyBB = llvm::BasicBlock::Create(*TheContext, "loop_body");
+    llvm::BasicBlock *AfterBB = llvm::BasicBlock::Create(*TheContext, "after_loop");
+
+    // 2. Jump from current location to the Condition Block
+    Builder->CreateBr(CondBB);
+
+    // --- CONDITION BLOCK ---
+    Builder->SetInsertPoint(CondBB);
+    
+    // Generate code for the condition (e.g., i < 10)
+    llvm::Value *CondV = Cond->codegen();
+    if (!CondV) return nullptr;
+
+    // Convert condition to a 1-bit boolean if it isn't already
+    // (Checks if the value is "Not Equal" to 0)
+    if (CondV->getType()->isIntegerTy()) {
+         CondV = Builder->CreateICmpNE(
+             CondV, 
+             llvm::ConstantInt::get(CondV->getType(), 0), 
+             "loopcond"
+         );
+    }
+
+    // Branch: If True -> Go to Body, If False -> Go to After
+    Builder->CreateCondBr(CondV, BodyBB, AfterBB);
+
+    // --- BODY BLOCK ---
+    TheFunction->insert(TheFunction->end(), BodyBB);
+    Builder->SetInsertPoint(BodyBB);
+
+    // Generate code for the loop body
+    if (!Body->codegen()) return nullptr;
+
+    // Jump back to the start (Condition)
+    Builder->CreateBr(CondBB);
+
+    // --- AFTER BLOCK ---
+    TheFunction->insert(TheFunction->end(), AfterBB);
+    Builder->SetInsertPoint(AfterBB);
+
+    // Return 0.0 (Loops don't return a value)
+    return llvm::Constant::getNullValue(llvm::Type::getDoubleTy(*TheContext));
+}
+
+llvm::Value *CallAST::codegen() {
+    // 1. Look up the function name in the LLVM module
+    llvm::Function *CalleeF = TheModule->getFunction(Callee);
+    if (!CalleeF) {
+        std::cerr << "Error: Unknown function referenced: " << Callee << std::endl;
+        return nullptr;
+    }
+
+    // 2. Check argument count match
+    if (CalleeF->arg_size() != Args.size()) {
+        std::cerr << "Error: Incorrect # arguments passed to " << Callee << std::endl;
+        return nullptr;
+    }
+
+    // 3. Generate code for each argument
+    std::vector<llvm::Value *> ArgsV;
+    for (unsigned i = 0, e = Args.size(); i != e; ++i) {
+        ArgsV.push_back(Args[i]->codegen());
+        if (!ArgsV.back()) return nullptr;
+    }
+
+    // 4. Create the call instruction
+    return Builder->CreateCall(CalleeF, ArgsV, "calltmp");
 }

@@ -18,18 +18,30 @@ enum TokenType {
     TOK_IDENTIFIER = -3,
     TOK_NUMBER = -4,
     TOK_STRING = -5,
-    TOK_IF = -6,       // <--- ADDED
-    TOK_THEN = -7,     // <--- ADDED
-    TOK_ELSE = -8,     // <--- ADDED
+    TOK_IF = -6,       
+    TOK_THEN = -7,     
+    TOK_ELSE = -8,     
+    
+    TOK_INT   = -10, 
+    TOK_FLOAT = -11, 
+    TOK_BOOL  = -12, 
+    TOK_CHAR  = -13, 
+    TOK_TRUE  = -14, 
+    TOK_FALSE = -15, 
+    TOK_EQ = -16,
+
+    TOK_INC = -17, 
+    TOK_DEC = -18, 
     TOK_ELIF = -19,
     TOK_VAR = -20,
-    TOK_INT   = -10, // int, int1, int4, int8
-    TOK_FLOAT = -11, // float, float4, float8
-    TOK_BOOL  = -12, // bool
-    TOK_CHAR  = -13, // char
-    TOK_TRUE  = -14, // true
-    TOK_FALSE = -15 , // false
-    TOK_EQ = -16,
+
+    TOK_LOOP = -21,
+    TOK_NEQ = -22,  // !=
+    TOK_GEQ = -23,  // >=
+    TOK_LEQ = -24,  // <=
+    
+    TOK_VOID = -25,
+    TOK_RETURN = -26
 };
 
 struct Token {
@@ -42,18 +54,24 @@ std::vector<Token> tokenize(std::string source);
 
 // --- 2. AST (The Shapes) ---
 
-
 class ASTNode {
 public:
     virtual ~ASTNode() = default;
     virtual llvm::Value *codegen() = 0; 
 };
 
-// Shape: "10"
-// include/quanta.h
+// [IMPORTANT] Forward Declaration
+class FunctionAST;
+
+// [IMPORTANT] Container for the whole program (Functions + Main)
+struct ProgramAST {
+    std::vector<std::unique_ptr<FunctionAST>> functions;
+};
+
+// --- Expression Classes ---
 
 class NumberAST : public ASTNode {
-    int64_t Val; // Changed from 'int' to 'int64_t'
+    int64_t Val; 
 public:
     NumberAST(int64_t Val) : Val(Val) {} 
     llvm::Value *codegen() override;
@@ -73,7 +91,6 @@ public:
     llvm::Value *codegen() override;
 };
 
-// Shape: "'A'"
 class CharAST : public ASTNode {
 public:
     char Val;
@@ -81,7 +98,6 @@ public:
     llvm::Value *codegen() override;
 };
 
-// Shape: "hello"
 struct StringAST : public ASTNode {
     std::string val;
     StringAST(std::string v) : val(v) {}
@@ -94,7 +110,7 @@ public:
     VariableAST(const std::string &name) : Name(name) {}
     llvm::Value *codegen() override;
 };
-// --- Assignment AST (e.g., x = 5) ---
+
 class AssignmentAST : public ASTNode {
     std::string Name;
     std::unique_ptr<ASTNode> RHS;
@@ -104,12 +120,12 @@ public:
 
     llvm::Value *codegen() override;
 };
-// Shape: "x"
+
 class VarDeclAST : public ASTNode {
 public:
     std::string Name;
-    std::string Type; // "int", "float", "bool", "char"
-    int Bytes;        // 1, 4, 8, etc.
+    std::string Type; 
+    int Bytes;        
     std::unique_ptr<ASTNode> InitVal;
     
     VarDeclAST(const std::string &name, const std::string &type, int bytes, std::unique_ptr<ASTNode> init)
@@ -117,7 +133,7 @@ public:
         
     llvm::Value *codegen() override;
 };
-// Shape: "x + 5"
+
 class BinaryExprAST : public ASTNode {
 public:
     char Op;
@@ -127,9 +143,6 @@ public:
     llvm::Value *codegen() override;
 };
 
-
-
-// Shape: "print(x)"
 class PrintAST : public ASTNode {
 public:
     std::unique_ptr<ASTNode> Expr;
@@ -144,8 +157,18 @@ public:
     llvm::Value *codegen() override;
 };
 
+class UpdateExprAST : public ASTNode {
+    std::string Name;
+    bool IsIncrement; 
+    bool IsPrefix;    
 
-// 1. BLOCK AST (Scope)
+public:
+    UpdateExprAST(const std::string &name, bool isIncrement, bool isPrefix)
+        : Name(name), IsIncrement(isIncrement), IsPrefix(isPrefix) {}
+
+    llvm::Value *codegen() override;
+};
+
 class BlockAST : public ASTNode {
     std::vector<std::unique_ptr<ASTNode>> Statements;
 public:
@@ -153,8 +176,27 @@ public:
         : Statements(std::move(Statements)) {}
     llvm::Value *codegen() override;
 };
+// Shape: "add(1, 2)"
+class CallAST : public ASTNode {
+    std::string Callee;
+    std::vector<std::unique_ptr<ASTNode>> Args;
+public:
+    CallAST(const std::string &Callee, std::vector<std::unique_ptr<ASTNode>> Args)
+        : Callee(Callee), Args(std::move(Args)) {}
 
-// 2. IF AST
+    llvm::Value *codegen() override;
+};
+class LoopAST : public ASTNode {
+    std::unique_ptr<ASTNode> Cond;
+    std::unique_ptr<ASTNode> Body;
+
+public:
+    LoopAST(std::unique_ptr<ASTNode> cond, std::unique_ptr<ASTNode> body)
+        : Cond(std::move(cond)), Body(std::move(body)) {}
+
+    llvm::Value *codegen() override;
+};
+
 class IfExprAST : public ASTNode {
     std::unique_ptr<ASTNode> Cond;
     std::unique_ptr<ASTNode> Then;
@@ -173,23 +215,28 @@ public:
     llvm::Value *codegen() override;
 };
 
-// --- NEW: Function Wrapper ---
-// This is required because parser.cpp returns this now.
+// --- FUNCTION AST ---
 class FunctionAST : public ASTNode {
 public:
-    std::string Name;
-    std::vector<std::unique_ptr<ASTNode>> Body;
+    std::string ReturnType; 
+    std::string Name;      
+    std::vector<std::pair<std::string, std::string>> Args; 
+    std::vector<std::unique_ptr<ASTNode>> Body; 
     
-    FunctionAST(const std::string &name, std::vector<std::unique_ptr<ASTNode>> body)
-        : Name(name), Body(std::move(body)) {}
+    FunctionAST(const std::string& type, 
+                const std::string& name, 
+                std::vector<std::pair<std::string, std::string>> args,
+                std::vector<std::unique_ptr<ASTNode>> body)
+        : ReturnType(type), Name(name), Args(std::move(args)), Body(std::move(body)) {}
         
-    // Returns llvm::Function*, not just llvm::Value*
+    const std::string& getName() const { return Name; }
+        
     llvm::Function *codegen() override;
 };
 
 // --- 3. PARSER ---
-// FIXED: Returns a single FunctionAST, not a vector.
-std::unique_ptr<FunctionAST> parse(const std::vector<Token>& tokens);
+// [IMPORTANT] Returns ProgramAST (List of Functions), not a single function pointer.
+ProgramAST parse(const std::vector<Token>& tokens);
 
 // --- 4. UTILS ---
 void initializeModule();

@@ -11,12 +11,12 @@ bool HasError = false;
 
 std::unique_ptr<ASTNode> parseVarDecl();
 std::unique_ptr<ASTNode> parsePrint();
-std::unique_ptr<ASTNode> parseBlock();
+std::vector<std::unique_ptr<ASTNode>> parseBlock();
 std::unique_ptr<ASTNode> parseIfExpr();
 std::unique_ptr<ASTNode> parseExpression();
 std::unique_ptr<ASTNode> parseUnary();
-std::unique_ptr<ASTNode> parsePostfix();
-std::unique_ptr<ASTNode> parseLoop();
+std::unique_ptr<FunctionAST> parseFunction();
+
 
 Token getTok() {
     if (currentToken < globalTokens.size()) return globalTokens[currentToken];
@@ -84,6 +84,26 @@ int GetTokPrecedence() {
     if (TokPrec <= 0) return -1;
     return TokPrec;
 }
+std::unique_ptr<ASTNode> parseLoop() {
+    advance(); // Eat 'loop'
+
+    if (getTok().value != "(") return LogError("Expected '(' after loop");
+    advance(); 
+
+    auto Cond = parseExpression();
+    if (!Cond) return nullptr;
+
+    if (getTok().value != ")") return LogError("Expected ')' after loop condition");
+    advance(); 
+
+    if (getTok().value != "{") return LogError("Expected '{' to start loop body");
+    
+    // [FIX] Wrap the vector in BlockAST
+    auto bodyStmts = parseBlock();
+    auto Body = std::make_unique<BlockAST>(std::move(bodyStmts));
+
+    return std::make_unique<LoopAST>(std::move(Cond), std::move(Body));
+}
 
 std::unique_ptr<ASTNode> parseExpression();
 // --- 1. PRIMARY PARSER ---
@@ -148,33 +168,52 @@ std::unique_ptr<ASTNode> parsePrimary() {
         
         return std::make_unique<ByteSizeAST>(varName);
     }
-    // if (t.type == TOK_IDENTIFIER) {
-    //     advance();
-        
-    //     return std::make_unique<VariableAST>(t.value);
-    // }
-
+ 
     // --- 5. IDENTIFIERS & ASSIGNMENT ---
+   // --- 5. IDENTIFIERS, ASSIGNMENT & FUNCTION CALLS ---
     if (t.type == TOK_IDENTIFIER) {
         std::string IdName = t.value;
-        advance(); // Eat the identifier (e.g., "a")
+        advance(); // Eat the identifier (e.g., "a" or "add")
 
-        // [CRITICAL CHECK]
-        // Is the very next token an '='?
+        // CASE A: Function Call? -> Is the next token '(' ?
+        if (getTok().value == "(") {
+            advance(); // Eat '('
+            
+            // Parse Arguments (e.g., 1, 2, x)
+            std::vector<std::unique_ptr<ASTNode>> args;
+            if (getTok().value != ")") {
+                while (true) {
+                    auto arg = parseExpression();
+                    if (arg) args.push_back(std::move(arg));
+                    else return nullptr;
+
+                    if (getTok().value == ")") break;
+                    
+                    if (getTok().value != ",") {
+                        return LogError("Expected ')' or ',' in argument list");
+                    }
+                    advance(); // Eat ','
+                }
+            }
+            advance(); // Eat ')'
+            
+            // Return Call Node
+            return std::make_unique<CallAST>(IdName, std::move(args));
+        }
+
+        // CASE B: Assignment? -> Is the next token '=' ?
         if (getTok().value == "=") {
             advance(); // Eat '='
             
-            // It is an assignment (a = 1)! Parse the value.
             auto RHS = parseExpression();
             if (!RHS) return nullptr;
 
             return std::make_unique<AssignmentAST>(IdName, std::move(RHS));
         }
 
-        // No '='? Then it is just a normal variable read (e.g. print(a))
+        // CASE C: Variable Read -> Just the name "a"
         return std::make_unique<VariableAST>(IdName);
     }
-
     // --- Inside parsePrimary() in src/parser.cpp ---
 
   
@@ -182,6 +221,12 @@ std::unique_ptr<ASTNode> parsePrimary() {
         advance();
         return std::make_unique<FloatAST>(std::stod(t.value));
     }
+
+    if (t.type == TOK_LOOP) {
+        return parseLoop();
+    }
+
+     
 
     if (t.type == TOK_TRUE) {
         advance();
@@ -209,137 +254,116 @@ std::unique_ptr<ASTNode> parsePrimary() {
 
 }
 
-std::unique_ptr<ASTNode> parseLoop() {
-    advance(); // Eat 'loop'
 
-    // Optional '('
-    if (getTok().value == "(") advance(); 
+bool isFunctionDefinition() {
+    int savePos = currentToken; // Save current position
     
-    // Parse Condition
-    auto Cond = parseExpression();
-    if (!Cond) return nullptr;
+    // 1. Check for Type
+    int t = getTok().type;
+    bool hasType = (t == TOK_INT || t == TOK_VOID || t == TOK_FLOAT || 
+                    t == TOK_STRING || t == TOK_BOOL);
     
-    // Optional ')'
-    if (getTok().value == ")") advance();
+    if (!hasType) return false; 
+    advance(); // Eat type
 
-    // --- DEBUG CHECK ---
-    if (getTok().value != "{") {
-        std::cerr << "[Debug] parseLoop Error: Expected '{', but found Token: '" 
-                  << getTok().value << "' (Type: " << getTok().type << ")\n";
-        return LogError("Expected '{' to start loop body");
+    // 2. Check for Name
+    if (getTok().type != TOK_IDENTIFIER) {
+        currentToken = savePos; 
+        return false;
     }
-    
-    auto Body = parseBlock(); 
-    if (!Body) return nullptr;
+    advance(); // Eat name
 
-    return std::make_unique<LoopAST>(std::move(Cond), std::move(Body));
+    // 3. Check for '('
+    bool isFunc = (getTok().value == "(");
+    
+    currentToken = savePos; // Reset position
+    return isFunc;
+}
+
+// --- PARSE FUNCTION ---
+std::unique_ptr<FunctionAST> parseFunction() {
+    // 1. Return Type
+    std::string returnType = "void";
+    if (getTok().type == TOK_INT) returnType = "int";
+    else if (getTok().type == TOK_FLOAT) returnType = "float";
+    else if (getTok().type == TOK_STRING) returnType = "string";
+    else if (getTok().type == TOK_VOID) returnType = "void";
+    advance(); // Eat type
+
+    // 2. Function Name
+    std::string name = getTok().value;
+    advance(); // Eat name
+
+    // 3. Arguments
+    advance(); // Eat '('
+    // (Argument parsing logic will go here later)
+    advance(); // Eat ')'
+
+    // 4. Body
+    // parseBlock returns the vector of statements needed by FunctionAST
+    auto body = parseBlock();
+
+    return std::make_unique<FunctionAST>(
+        returnType, 
+        name, 
+        std::vector<std::pair<std::string, std::string>>(), 
+        std::move(body)
+    );
+}
+
+// --- HELPER 2: Parse a Single Statement ---
+// Unifies logic for Blocks and Top-Level Scripts
+std::unique_ptr<ASTNode> parseStatement() {
+    int t = getTok().type;
+
+    if (t == TOK_INT || t == TOK_FLOAT || t == TOK_BOOL || 
+        t == TOK_STRING || t == TOK_VAR) {
+        return parseVarDecl();
+    } 
+    else if (t == TOK_PRINT) {
+        return parsePrint();
+    } 
+    else if (t == TOK_IF) {
+        return parseIfExpr();
+    } 
+    else if (t == TOK_RETURN) {
+        advance(); // Eat 'return'
+        std::unique_ptr<ASTNode> expr = nullptr;
+        if (getTok().value != ";") expr = parseExpression();
+        if (getTok().value == ";") advance(); // Eat ';'
+        return expr; 
+    } 
+    else {
+        return parseExpression();
+    }
 }
 
 // --- Parse Block { ... } ---
-std::unique_ptr<ASTNode> parseBlock() {
-    // 1. Check for opening brace
-    if (getTok().value != "{") return LogError("Expected '{' to start block");
+std::vector<std::unique_ptr<ASTNode>> parseBlock() {
+    if (getTok().value != "{") {
+        LogError("Expected '{' to start block");
+        return {};
+    }
     advance(); // Eat '{'
 
     std::vector<std::unique_ptr<ASTNode>> stmts;
 
-    // 2. Loop until we hit '}' or end of file
-    while (getTok().value != "}" && getTok().type != TOK_EOF) {
-        std::unique_ptr<ASTNode> stmt = nullptr;
-        
-        // --- Reuse your existing logic to parse statements ---
-        int t = getTok().type;
-        if (t == TOK_INT || t == TOK_FLOAT || t == TOK_BOOL || 
-            t == TOK_CHAR || t == TOK_STRING || t == TOK_VAR) {
-            stmt = parseVarDecl();
-        } 
-        else if (t == TOK_PRINT) {
-            stmt = parsePrint();
-        } 
-        else if (t == TOK_IF) {
-            stmt = parseIfExpr(); // Recursive! Blocks can contain Ifs
-        } 
-        else {
-            stmt = parseExpression();
-        }
-
-        // 3. Add to list
+    while (getTok().type != TOK_EOF && getTok().value != "}") {
+        auto stmt = parseStatement(); // Use the new helper
         if (stmt) {
             stmts.push_back(std::move(stmt));
-            // Eat optional semicolons
-            if (getTok().value == ";") advance();
+            if (getTok().value == ";") advance(); // Eat optional ';'
         } else {
-            advance(); // Skip errors to avoid infinite loop
+            synchronize();
         }
     }
 
-    // 4. Check for closing brace
-    if (getTok().value != "}") return LogError("Expected '}' to end block");
-    advance(); // Eat '}'
-
-    return std::make_unique<BlockAST>(std::move(stmts));
+    if (getTok().value == "}") advance(); // Eat '}'
+    return stmts;
 }
-
-
-// --- DEBUG VERSION of parsePostfix ---
-std::unique_ptr<ASTNode> parsePostfix() {
-    auto LHS = parsePrimary();
-    if (!LHS) return nullptr;
-
-    // Check for Postfix Operators (a++, a--)
-    if (getTok().type == TOK_INC || getTok().type == TOK_DEC) {
-        
-        // Ensure we are modifying a variable
-        auto *Var = dynamic_cast<VariableAST*>(LHS.get());
-        if (!Var) {
-            return LogError("Operand of ++/-- must be a variable (e.g., 'a++', not '5++')");
-        }
-
-        bool isInc = (getTok().type == TOK_INC);
-        advance(); // Eat operator
-        
-        // Return Update Node
-        return std::make_unique<UpdateExprAST>(Var->Name, isInc, false);
-    }
-
-    return LHS;
-}
-// --- DEBUG VERSION of parseUnary ---
-std::unique_ptr<ASTNode> parseUnary() {
-    // Check for Prefix Operators (++a, --a)
-    if (getTok().type == TOK_INC || getTok().type == TOK_DEC) {
-        bool isInc = (getTok().type == TOK_INC);
-        advance(); // Eat operator
-        
-        auto Operand = parseUnary();
-        if (!Operand) return nullptr;
-
-        auto *Var = dynamic_cast<VariableAST*>(Operand.get());
-        
-        if (!Var) {
-            std::cerr << "[Debug] Prefix Error! Expected Variable, but got something else.\n";
-            if (dynamic_cast<NumberAST*>(Operand.get())) {
-                std::cerr << "        -> It was a NUMBER (e.g. ++5).\n";
-            } 
-            else if (dynamic_cast<UpdateExprAST*>(Operand.get())) {
-                std::cerr << "        -> It was ALREADY an UpdateExpr (e.g. ++(++a)).\n";
-            }
-            else {
-                std::cerr << "        -> It was some complex expression (not a plain variable).\n";
-            }
-
-            return LogError("Operand of ++/-- must be a variable");
-        }
-
-        return std::make_unique<UpdateExprAST>(Var->Name, isInc, true);
-    }
-
-    return parsePostfix();
-}
-
 // --- Parse If / Elif / Else ---
 std::unique_ptr<ASTNode> parseIfExpr() {
-    advance(); // Eat 'if' or 'elif'
+    advance(); // Eat 'if'
 
     // 1. Condition
     auto Cond = parseExpression();
@@ -347,32 +371,34 @@ std::unique_ptr<ASTNode> parseIfExpr() {
 
     // 2. Then Block
     if (getTok().value != "{") return LogError("Expected '{' after if condition");
-    auto Then = parseBlock();
-    if (!Then) return nullptr;
+    
+    // [FIX] Wrap the vector in BlockAST
+    auto thenStmts = parseBlock(); 
+    auto Then = std::make_unique<BlockAST>(std::move(thenStmts));
 
     // 3. Else / Elif Logic
     std::unique_ptr<ASTNode> Else = nullptr;
     
-    // CASE A: 'elif' -> Treat as a nested IF (Recursion)
     if (getTok().type == TOK_ELIF) {
-        Else = parseIfExpr(); // Recursively parse the 'elif'
+        Else = parseIfExpr(); // Recursively parse 'elif'
     } 
-    // CASE B: 'else'
     else if (getTok().type == TOK_ELSE) {
         advance(); // Eat 'else'
         
-        // Handle "else if" (Standard C-style)
         if (getTok().type == TOK_IF) {
-            Else = parseIfExpr();
+            Else = parseIfExpr(); // "else if"
         } else {
-            // Handle "else { ... }"
             if (getTok().value != "{") return LogError("Expected '{' after else");
-            Else = parseBlock();
+            
+            // [FIX] Wrap the else block vector in BlockAST
+            auto elseStmts = parseBlock();
+            Else = std::make_unique<BlockAST>(std::move(elseStmts));
         }
     }
 
     return std::make_unique<IfExprAST>(std::move(Cond), std::move(Then), std::move(Else));
 }
+
 std::unique_ptr<ASTNode> parseVarDecl() {
     Token typeTok = getTok();
     advance(); // Eat 'int', 'bool', 'string', 'var', etc.
@@ -475,67 +501,84 @@ std::unique_ptr<ASTNode> parseVarDecl() {
 
     return std::make_unique<VarDeclAST>(name, typeStr, bytes, std::move(init));
 }
-// 1. Parse Multiplication & Division (Higher Priority)
-// std::unique_ptr<ASTNode> parseTerm() {
-//     auto LHS = parsePrimary();
-//     if (!LHS) return nullptr;
-
-//     while (true) {
-//         Token t = getTok();
-//         // Check for High Priority Operators (*, /)
-//         if (t.type == '*' || t.type == '/') {
-//             char op = (char)t.type;
-//             advance(); // Eat operator
-            
-//             auto RHS = parsePrimary(); // Parse the next number immediately
-//             if (!RHS) return nullptr;
-
-//             // Combine them: (LHS * RHS)
-//             LHS = std::make_unique<BinaryExprAST>(op, std::move(LHS), std::move(RHS));
-//         } else {
-//             // If it's not * or /, stop. Let parseExpression handle + or -
-//             return LHS;
-//         }
-//     }
-// }
-
-// --- Parse Binary Operators (RHS) ---
-// Inside src/parser.cpp
 
 std::unique_ptr<ASTNode> parseBinOpRHS(int ExprPrec, std::unique_ptr<ASTNode> LHS) {
     while (true) {
         int TokPrec = GetTokPrecedence();
 
-        // If this is a token with less precedence, return LHS
+        // If this is a binop that binds at least as tightly as the current binop,
+        // consume it, otherwise we are done.
+        // Example: if we have "a + b" and see ";", prec is -1, so we return.
         if (TokPrec < ExprPrec)
             return LHS;
 
-        // [FIX] Use getTok().type instead of CurTok.type
-        int BinOp = getTok().type;
-        
-        advance(); // Eat binary operator
+        // Okay, we know this is a binop.
+        int BinOp = getTok().type; // Store the operator (e.g., TOK_EQ or '+')
+        advance(); // Eat binop
 
-        // [CRITICAL FIX] Use parseUnary() to handle 'a * b++' correctly
-        // (Old code used parsePrimary(), which breaks precedence)
-        auto RHS = parseUnary(); 
+        // Parse the primary expression after the binary operator.
+        auto RHS = parseUnary();
         if (!RHS) return nullptr;
 
-        // If the next operator binds more tightly, recurse
+        // If BinOp binds less tightly with RHS than the operator after RHS, let
+        // the pending operator take RHS as its LHS.
         int NextPrec = GetTokPrecedence();
         if (TokPrec < NextPrec) {
             RHS = parseBinOpRHS(TokPrec + 1, std::move(RHS));
             if (!RHS) return nullptr;
         }
 
-        // Merge LHS/RHS
+        // Merge LHS/RHS. 
+        // using 'int' for BinOp ensures TOK_EQ works.
         LHS = std::make_unique<BinaryExprAST>(BinOp, std::move(LHS), std::move(RHS));
     }
 }
-std::unique_ptr<ASTNode> parseExpression() {
-    // Start with Unary (handles ++a, a++, or just a)
-    auto LHS = parseUnary(); 
+
+// --- 1. POSTFIX PARSER (Highest Priority: i++) ---
+std::unique_ptr<ASTNode> parsePostfix() {
+    auto LHS = parsePrimary(); // Gets 'i'
     if (!LHS) return nullptr;
 
+    // Check for operator immediately after variable
+    if (getTok().type == TOK_INC || getTok().type == TOK_DEC) {
+        
+        auto *Var = dynamic_cast<VariableAST*>(LHS.get());
+        if (!Var) return LogError("Operand of ++/-- must be a variable");
+
+        bool isInc = (getTok().type == TOK_INC);
+        advance(); // Eat '++'
+        
+        // Return Update Node (IsPrefix = false)
+        return std::make_unique<UpdateExprAST>(Var->Name, isInc, false);
+    }
+    return LHS;
+}
+
+// --- 2. PREFIX PARSER (Medium Priority: ++i) ---
+std::unique_ptr<ASTNode> parseUnary() {
+    // Check for operator BEFORE variable
+    if (getTok().type == TOK_INC || getTok().type == TOK_DEC) {
+        bool isInc = (getTok().type == TOK_INC);
+        advance(); // Eat '++'
+        
+        // Recursively parse operand (allows things like ++(++i))
+        auto Operand = parseUnary(); 
+        if (!Operand) return nullptr;
+
+        auto *Var = dynamic_cast<VariableAST*>(Operand.get());
+        if (!Var) return LogError("Operand of ++/-- must be a variable");
+
+        // Return Update Node (IsPrefix = true)
+        return std::make_unique<UpdateExprAST>(Var->Name, isInc, true);
+    }
+    
+    // If not prefix, fall down to Postfix
+    return parsePostfix();
+}
+
+std::unique_ptr<ASTNode> parseExpression() {
+    auto LHS = parseUnary();
+    if (!LHS) return nullptr;
     return parseBinOpRHS(0, std::move(LHS));
 }
 std::unique_ptr<ASTNode> parsePrint() {
@@ -552,61 +595,68 @@ std::unique_ptr<ASTNode> parsePrint() {
 
     return std::make_unique<PrintAST>(std::move(Expr));
 }
-
-// --- 4. THE MAIN PARSER ---
-// This returns a list of instructions
-// --- MAIN PARSE LOOP ---
-std::unique_ptr<FunctionAST> parse(const std::vector<Token>& tokens) {
+ProgramAST parse(const std::vector<Token>& tokens) {
     globalTokens = tokens;
     currentToken = 0;
-    HasError = false; // Reset error flag
-    
-    std::vector<std::unique_ptr<ASTNode>> body;
+    HasError = false;
+
+    ProgramAST program;
+    std::vector<std::unique_ptr<ASTNode>> scriptBody; // Buffer for script code
 
     while (getTok().type != TOK_EOF) {
-        std::unique_ptr<ASTNode> stmt = nullptr;
-
-        // 1. Variable Declarations
-        if (getTok().type == TOK_INT || getTok().type == TOK_BOOL || 
-            getTok().type == TOK_CHAR || getTok().type == TOK_FLOAT || 
-            getTok().type == TOK_STRING || getTok().type == TOK_VAR) {
-            stmt = parseVarDecl();
-        }
-
-        // 2. Print Statements
-        else if (getTok().type == TOK_PRINT) {
-            stmt = parsePrint();
-        } 
-
-        // 3. If/Else Statements
-        else if (getTok().type == TOK_IF) {
-            stmt = parseIfExpr();
-        }
-
-        // 4. [NEW] Loop Statements
-        else if (getTok().type == TOK_LOOP) {
-            stmt = parseLoop();
-        }
         
-        // 5. General Expressions (Math, Assignment, etc.)
+        // CASE A: It looks like a Function (int main() ...)
+        if (isFunctionDefinition()) {
+            auto func = parseFunction();
+            if (func) program.functions.push_back(std::move(func));
+        } 
+        
+        // CASE B: It looks like a Script Statement (print("hi");)
         else {
-            stmt = parseExpression();
-        }
-
-        if (stmt) {
-            // Success! Add to body.
-            body.push_back(std::move(stmt));
-            
-            // Handle optional semicolon
-            if (getTok().value == ";") advance();
-            
-        } else {
-            // FAILURE: Statement failed to parse.
-            // Skip to the next semicolon to recover.
-            synchronize(); 
+            auto stmt = parseStatement();
+            if (stmt) {
+                scriptBody.push_back(std::move(stmt));
+                if (getTok().value == ";") advance();
+            } else {
+                advance(); // Skip errors
+            }
         }
     }
 
-    // Return the "main" function containing all parsed code
-    return std::make_unique<FunctionAST>("main", std::move(body));
+    // --- AUTO-MAIN LOGIC ---
+    
+    // 1. Check if user wrote their own main
+    bool hasExplicitMain = false;
+    for (const auto& func : program.functions) {
+        if (func->getName() == "main") {
+            hasExplicitMain = true;
+            break;
+        }
+    }
+
+    // 2. Decide what to do with script code
+    if (!scriptBody.empty()) {
+        if (hasExplicitMain) {
+            std::cerr << "Error: Cannot mix top-level script code with an explicit 'main' function." << std::endl;
+            HasError = true;
+        } else {
+            // Auto-generate: void main() { ... scriptBody ... }
+            program.functions.push_back(std::make_unique<FunctionAST>(
+                "void", 
+                "main", 
+                std::vector<std::pair<std::string, std::string>>(), 
+                std::move(scriptBody)
+            ));
+        }
+    } 
+    // 3. Handle Empty File (prevent linker error)
+    else if (!hasExplicitMain) {
+         program.functions.push_back(std::make_unique<FunctionAST>(
+            "void", "main", 
+            std::vector<std::pair<std::string, std::string>>(), 
+            std::vector<std::unique_ptr<ASTNode>>()
+        ));
+    }
+
+    return program;
 }
