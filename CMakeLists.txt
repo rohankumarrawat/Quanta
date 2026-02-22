@@ -5,23 +5,35 @@ project(Quanta)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# 2. Paths
-set(LLVM_PREFIX "/opt/homebrew/opt/llvm")
-set(HOMEBREW_PREFIX "/opt/homebrew") # Standard location on Apple Silicon
+if (APPLE)
+    # 2. Paths
+    set(LLVM_PREFIX "/opt/homebrew/opt/llvm")
+    set(HOMEBREW_PREFIX "/opt/homebrew") # Standard location on Apple Silicon
 
-# 3. Add Include and Library paths
-include_directories(${LLVM_PREFIX}/include)
+    # 3. Add Include and Library paths
+    include_directories(${LLVM_PREFIX}/include)
 
-# CRITICAL FIX: Tell linker where to find zstd and other Homebrew libs
-link_directories(${LLVM_PREFIX}/lib ${HOMEBREW_PREFIX}/lib)
+    # Tell linker where to find zstd and other Homebrew libs
+    link_directories(${LLVM_PREFIX}/lib ${HOMEBREW_PREFIX}/lib)
+    
+    set(LLVM_CONFIG_EXE "${LLVM_PREFIX}/bin/llvm-config")
+else()
+    # Assume llvm-config is in the PATH
+    set(LLVM_CONFIG_EXE "llvm-config")
+endif()
 
 # 4. Get Compile Flags
 execute_process(
-    COMMAND ${LLVM_PREFIX}/bin/llvm-config --cxxflags
+    COMMAND ${LLVM_CONFIG_EXE} --cxxflags
     OUTPUT_VARIABLE LLVM_CXXFLAGS
     OUTPUT_STRIP_TRAILING_WHITESPACE
 )
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${LLVM_CXXFLAGS}")
+
+if (WIN32)
+    # Statically link runtime libraries on Windows so users don't need MinGW DLLs
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static -static-libgcc -static-libstdc++")
+endif()
 
 # 5. Define Executable
 add_executable(quanta 
@@ -33,7 +45,7 @@ add_executable(quanta
 
 # 6. Get Library List
 execute_process(
-    COMMAND ${LLVM_PREFIX}/bin/llvm-config --libs --system-libs --link-static
+    COMMAND ${LLVM_CONFIG_EXE} --libs --system-libs --link-static
     OUTPUT_VARIABLE LLVM_LIBS_OUTPUT
     OUTPUT_STRIP_TRAILING_WHITESPACE
 )
@@ -43,5 +55,10 @@ string(REPLACE "\n" " " LLVM_LIBS_CLEAN "${LLVM_LIBS_OUTPUT}")
 string(REPLACE " " ";" LLVM_LIBS_LIST "${LLVM_LIBS_CLEAN}")
 
 # 7. Link
-# We add zstd explicitly just in case, along with the list from LLVM
-target_link_libraries(quanta PRIVATE ${LLVM_LIBS_LIST} z ncurses zstd)
+if (APPLE)
+    target_link_libraries(quanta PRIVATE ${LLVM_LIBS_LIST} z ncurses zstd)
+elseif (WIN32)
+    target_link_libraries(quanta PRIVATE ${LLVM_LIBS_LIST} z zstd)
+else()
+    target_link_libraries(quanta PRIVATE ${LLVM_LIBS_LIST} z ncurses zstd)
+endif()
