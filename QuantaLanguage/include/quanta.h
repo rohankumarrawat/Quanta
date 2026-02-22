@@ -307,44 +307,7 @@ public:
     llvm::Value *codegen() override;
 };
 
-// --- STRING OPERATION AST ---
-class StringOpAST : public ASTNode {
-    int OpType; // Stores the Token type (e.g., TOK_LEN, TOK_UPPER)
-    std::unique_ptr<ASTNode> Operand;
-
-public:
-    StringOpAST(int opType, std::unique_ptr<ASTNode> operand)
-        : OpType(opType), Operand(std::move(operand)) {}
-
-    llvm::Value *codegen() override;
-};
-
-// Two-argument string ops: find(s, sub), count(s, sub), startswith(s, prefix), endswith(s, suffix)
-class StringOp2AST : public ASTNode {
-    int OpType;
-    std::unique_ptr<ASTNode> Operand1;
-    std::unique_ptr<ASTNode> Operand2;
-
-public:
-    StringOp2AST(int opType, std::unique_ptr<ASTNode> op1, std::unique_ptr<ASTNode> op2)
-        : OpType(opType), Operand1(std::move(op1)), Operand2(std::move(op2)) {}
-
-    llvm::Value *codegen() override;
-};
-
-// Three-argument: replace(s, old, new)
-class StringOp3AST : public ASTNode {
-    int OpType;
-    std::unique_ptr<ASTNode> Operand1;
-    std::unique_ptr<ASTNode> Operand2;
-    std::unique_ptr<ASTNode> Operand3;
-
-public:
-    StringOp3AST(int opType, std::unique_ptr<ASTNode> op1, std::unique_ptr<ASTNode> op2, std::unique_ptr<ASTNode> op3)
-        : OpType(opType), Operand1(std::move(op1)), Operand2(std::move(op2)), Operand3(std::move(op3)) {}
-
-    llvm::Value *codegen() override;
-};
+// String operations have been moved to MethodCallAST
 class ReturnAST : public ASTNode {
     std::unique_ptr<ASTNode> Expr;
     int Line;
@@ -365,6 +328,55 @@ public:
     FixedStringDeclAST(std::string varName, int capacity, std::unique_ptr<ASTNode> initValue)
         : VarName(varName), Capacity(capacity), InitValue(std::move(initValue)) {}
 
+    llvm::Value *codegen() override;
+};
+
+class ArrayExprAST : public ASTNode {
+public:
+    std::vector<std::unique_ptr<ASTNode>> Elements;
+    ArrayExprAST(std::vector<std::unique_ptr<ASTNode>> Elements) 
+        : Elements(std::move(Elements)) {}
+    llvm::Value *codegen() override;
+};
+
+class FixedArrayDeclAST : public ASTNode {
+public:
+    std::string VarName;
+    std::string TypeName;
+    int Size;
+    std::unique_ptr<ASTNode> InitValue;
+    FixedArrayDeclAST(std::string varName, std::string typeName, int size, std::unique_ptr<ASTNode> initValue)
+        : VarName(varName), TypeName(typeName), Size(size), InitValue(std::move(initValue)) {}
+    llvm::Value *codegen() override;
+};
+
+class DynamicListDeclAST : public ASTNode {
+public:
+    std::string VarName;
+    std::string TypeName;
+    std::unique_ptr<ASTNode> InitValue;
+    DynamicListDeclAST(std::string varName, std::string typeName, std::unique_ptr<ASTNode> initValue)
+        : VarName(varName), TypeName(typeName), InitValue(std::move(initValue)) {}
+    llvm::Value *codegen() override;
+};
+
+class IndexAssignAST : public ASTNode {
+public:
+    std::unique_ptr<ASTNode> Obj;
+    std::unique_ptr<ASTNode> Index;
+    std::unique_ptr<ASTNode> Value;
+    IndexAssignAST(std::unique_ptr<ASTNode> obj, std::unique_ptr<ASTNode> index, std::unique_ptr<ASTNode> value)
+        : Obj(std::move(obj)), Index(std::move(index)), Value(std::move(value)) {}
+    llvm::Value *codegen() override;
+};
+
+class MethodCallAST : public ASTNode {
+public:
+    std::unique_ptr<ASTNode> Obj;
+    std::string MethodName;
+    std::vector<std::unique_ptr<ASTNode>> Args;
+    MethodCallAST(std::unique_ptr<ASTNode> obj, std::string methodName, std::vector<std::unique_ptr<ASTNode>> args)
+        : Obj(std::move(obj)), MethodName(methodName), Args(std::move(args)) {}
     llvm::Value *codegen() override;
 };
 

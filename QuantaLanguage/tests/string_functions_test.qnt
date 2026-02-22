@@ -1,31 +1,38 @@
-@ Test all new string functions
-print("--- strip/lstrip/rstrip ---");
-string s = "  hello world  ";
-print("strip:", strip(s));
-print("lstrip:", lstrip(s));
-print("rstrip:", rstrip(s));
+@ tests/string_functions_test.qnt
 
-print("--- capitalize / title ---");
-print("capitalize:", capitalize("hello"));
-print("title:", title("hello world"));
+print("--- Testing String Modification Methods ---");
+string base = "  Hello Quanta Framework  ";
+print("Original:", base);
+print(".len():", base.len());
+print(".upper():", base.upper());
+print(".lower():", base.lower());
+print(".strip():", base.strip());
+print(".lstrip():", base.lstrip());
+print(".rstrip():", base.rstrip());
+print(".reverse():", base.reverse());
 
-print("--- isalpha, isdigit, isspace, isalnum ---");
-print("isalpha(abc):", isalpha("abc"));
-print("isalpha(a1):", isalpha("a1"));
-print("isdigit(123):", isdigit("123"));
-print("isdigit(12a):", isdigit("12a"));
-print("isspace(   ):", isspace("   "));
-print("isalnum(ab1):", isalnum("ab1"));
+print("\n--- Testing String Case & Formatting ---");
+string word = "quanta language";
+print("Word:", word);
+print(".capitalize():", word.capitalize());
+print(".title():", word.title());
 
-print("--- find, count, startswith, endswith ---");
-string t = "foo bar foo baz foo";
-print("find(foo):", find(t, "foo"));
-print("count(foo):", count(t, "foo"));
-print("startswith(foo):", startswith(t, "foo"));
-print("endswith(foo):", endswith(t, "foo"));
-print("endswith(baz):", endswith(t, "baz"));
+print("\n--- Testing String Inspection & Boolean Methods ---");
+print("'HELLO'.isupper():", "HELLO".isupper());
+print("'hello'.islower():", "hello".islower());
+print("'abc'.isalpha():", "abc".isalpha());
+print("'123'.isdigit():", "123".isdigit());
+print("'   '.isspace():", "   ".isspace());
+print("'A1b2'.isalnum():", "A1b2".isalnum());
 
-print("--- replace ---");
-print("replace:", replace("hello world", "world", "quanta"));
+print("\n--- Testing Search & Replace Methods ---");
+string sentence = "The quick brown fox jumps over the lazy dog";
+print("Sentence:", sentence);
+print(".find('brown'):", sentence.find("brown"));
+print(".count('o'):", sentence.count("o"));
+print(".startswith('The'):", sentence.startswith("The"));
+print(".endswith('cat'):", sentence.endswith("cat"));
+print(".replace('fox', 'cat'):", sentence.replace("fox", "cat"));
 
-print("--- ALL STRING FUNCTION TESTS DONE ---");
+print("\n--- Testing Method Chaining ---");
+print("'   hello world   '.strip().upper().replace('WORLD', 'QUANTA'):", "   hello world   ".strip().upper().replace("WORLD", "QUANTA"));

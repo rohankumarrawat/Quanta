@@ -173,6 +173,6 @@ string[20] stackString = "I am on the Stack";
 
 print("Dynamic:", heapString);
 print("Fixed:", stackString);
-
-
+stackString[0]='3';
+print(stackString[0])
 print("--- ALL EMBEDDED TESTS COMPLETED ---");

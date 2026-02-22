@@ -32,6 +32,7 @@ struct VarInfo {
     llvm::AllocaInst *Alloca;
     llvm::Type *Type;
     std::string TypeName;
+    llvm::Type *ElementType; // For Arrays and Lists
 };
 
 // Global Variable Registry
@@ -496,6 +497,9 @@ llvm::Value *VariableAST::codegen() {
         exit(1);
     }
     VarInfo& info = NamedValues[Name];
+    if (info.Type->isArrayTy() || info.Type->isStructTy()) {
+        return info.Alloca; // Arrays and Lists shouldn't be loaded into registers by value
+    }
     return Builder->CreateLoad(info.Type, info.Alloca, Name.c_str());
 }
 
@@ -603,7 +607,7 @@ llvm::Value *VarDeclAST::codegen() {
     }
 
     Builder->CreateStore(FinalVal, Alloca);
-    NamedValues[Name] = {Alloca, TargetType, Type}; 
+    NamedValues[Name] = {Alloca, TargetType, Type, nullptr}; 
     return FinalVal;
  
 }
@@ -1270,96 +1274,37 @@ llvm::Value *CallAST::codegen() {
     return Builder->CreateCall(CalleeF, FinalArgs, "calltmp");
 }
 
-// --- Generate Code for String Keywords ---
-llvm::Value *StringOpAST::codegen() {
-    // 1. Generate the string value
-    llvm::Value *StrVal = Operand->codegen();
-    if (!StrVal) return nullptr;
-
-    // Safety check: Make sure the user actually passed a string (pointer)
-    if (!StrVal->getType()->isPointerTy()) {
-        return LogErrorV("Error: String operations require a string argument.");
-    }
-
-    // 2. Handle the specific operation
-    switch (OpType) {
-        
-        case TOK_LEN: {
-            // Call strlen()
-            llvm::Value *Len64 = Builder->CreateCall(getStrlenFunc(), {StrVal}, "len_val");
-            // Convert to 32-bit int for Quanta
-            return Builder->CreateIntCast(Len64, Builder->getInt32Ty(), false, "len_32");
-        }
-        
-        case TOK_ISUPPER:
-            return Builder->CreateCall(getQuantaIsUpperFunc(), {StrVal}, "isup_res");
-            
-        case TOK_ISLOWER:
-            return Builder->CreateCall(getQuantaIsLowerFunc(), {StrVal}, "islow_res");
-
-        // --- OPERATIONS THAT RETURN A NEW HEAP STRING ---
-        case TOK_UPPER:
-        case TOK_LOWER:
-        case TOK_REVERSE:
-        case TOK_STRIP:
-        case TOK_LSTRIP:
-        case TOK_RSTRIP:
-        case TOK_CAPITALIZE:
-        case TOK_TITLE: {
-            llvm::Value *NewStr = nullptr;
-            if (OpType == TOK_UPPER)        NewStr = Builder->CreateCall(getQuantaUpperFunc(), {StrVal}, "up_res");
-            else if (OpType == TOK_LOWER)   NewStr = Builder->CreateCall(getQuantaLowerFunc(), {StrVal}, "low_res");
-            else if (OpType == TOK_REVERSE) NewStr = Builder->CreateCall(getQuantaReverseFunc(), {StrVal}, "rev_res");
-            else if (OpType == TOK_STRIP)   NewStr = Builder->CreateCall(getQuantaStripFunc(), {StrVal}, "strip_res");
-            else if (OpType == TOK_LSTRIP)  NewStr = Builder->CreateCall(getQuantaLstripFunc(), {StrVal}, "lstrip_res");
-            else if (OpType == TOK_RSTRIP)  NewStr = Builder->CreateCall(getQuantaRstripFunc(), {StrVal}, "rstrip_res");
-            else if (OpType == TOK_CAPITALIZE) NewStr = Builder->CreateCall(getQuantaCapitalizeFunc(), {StrVal}, "cap_res");
-            else if (OpType == TOK_TITLE)   NewStr = Builder->CreateCall(getQuantaTitleFunc(), {StrVal}, "title_res");
-            trackForAutoFree(NewStr);
-            return NewStr;
-        }
-
-        case TOK_ISALPHA: return Builder->CreateCall(getQuantaIsAlphaFunc(), {StrVal}, "isalpha_res");
-        case TOK_ISDIGIT: return Builder->CreateCall(getQuantaIsDigitFunc(), {StrVal}, "isdigit_res");
-        case TOK_ISSPACE: return Builder->CreateCall(getQuantaIsSpaceFunc(), {StrVal}, "isspace_res");
-        case TOK_ISALNUM: return Builder->CreateCall(getQuantaIsAlnumFunc(), {StrVal}, "isalnum_res");
-
-        default:
-            return LogErrorV("Unknown string operation.");
-    }
-}
-
-llvm::Value *StringOp2AST::codegen() {
-    llvm::Value *StrVal = Operand1->codegen();
-    llvm::Value *SubVal = Operand2->codegen();
-    if (!StrVal || !SubVal) return nullptr;
-    if (!StrVal->getType()->isPointerTy() || !SubVal->getType()->isPointerTy()) {
-        return LogErrorV("Error: Two-arg string operations require two string arguments.");
-    }
-    switch (OpType) {
-        case TOK_FIND:        return Builder->CreateCall(getQuantaFindFunc(), {StrVal, SubVal}, "find_res");
-        case TOK_COUNT:       return Builder->CreateCall(getQuantaCountFunc(), {StrVal, SubVal}, "count_res");
-        case TOK_STARTSWITH:  return Builder->CreateCall(getQuantaStartswithFunc(), {StrVal, SubVal}, "startswith_res");
-        case TOK_ENDSWITH:    return Builder->CreateCall(getQuantaEndswithFunc(), {StrVal, SubVal}, "endswith_res");
-        default: return LogErrorV("Unknown two-arg string operation.");
-    }
-}
-
-llvm::Value *StringOp3AST::codegen() {
-    if (OpType != TOK_REPLACE) return LogErrorV("Unknown three-arg string operation.");
-    llvm::Value *StrVal = Operand1->codegen();
-    llvm::Value *OldVal = Operand2->codegen();
-    llvm::Value *NewVal = Operand3->codegen();
-    if (!StrVal || !OldVal || !NewVal) return nullptr;
-    if (!StrVal->getType()->isPointerTy() || !OldVal->getType()->isPointerTy() || !NewVal->getType()->isPointerTy()) {
-        return LogErrorV("Error: replace(s, old, new) requires three string arguments.");
-    }
-    llvm::Value *NewStr = Builder->CreateCall(getQuantaReplaceFunc(), {StrVal, OldVal, NewVal}, "replace_res");
-    trackForAutoFree(NewStr);
-    return NewStr;
-}
+// Legacy Strings have been migrated to OOP logic
 
 llvm::Value *StringIndexAST::codegen() {
+    // 1. Array / List Check
+    if (auto *VarAst = dynamic_cast<VariableAST*>(BaseExpr.get())) {
+        std::string name = VarAst->getName();
+        if (NamedValues.find(name) != NamedValues.end()) {
+            VarInfo &info = NamedValues[name];
+            
+            if (info.Type->isArrayTy() || info.Type->isStructTy()) {
+                llvm::Value *IdxVal = IndexExpr->codegen();
+                if (!IdxVal) return nullptr;
+
+                if (info.Type->isArrayTy()) {
+                    // Fixed Array (Stack)
+                    llvm::Value *IdxList[] = { llvm::ConstantInt::get(Builder->getInt32Ty(), 0), IdxVal };
+                    llvm::Value *ElementPtr = Builder->CreateInBoundsGEP(info.Type, info.Alloca, IdxList);
+                    return Builder->CreateLoad(info.Type->getArrayElementType(), ElementPtr, "arr_read");
+                } else if (info.Type->isStructTy()) {
+                    // Dynamic List (Heap)
+                    llvm::Value *PtrField = Builder->CreateStructGEP(info.Type, info.Alloca, 0);
+                    llvm::Value *BufferPtr = Builder->CreateLoad(Builder->getPtrTy(), PtrField);
+                    
+                    // GEP on the dynamically sized buffer
+                    llvm::Value *ElementPtr = Builder->CreateGEP(info.ElementType, BufferPtr, IdxVal);
+                    return Builder->CreateLoad(info.ElementType, ElementPtr, "list_read");
+                }
+            }
+        }
+    }
+
     llvm::Value *Base = BaseExpr->codegen();
     llvm::Value *Index = IndexExpr->codegen();
     if (!Base || !Index) return nullptr;
@@ -1425,7 +1370,7 @@ llvm::Value *LoopOverStringAST::codegen() {
 
     TheFunction->insert(TheFunction->end(), BodyBB);
     Builder->SetInsertPoint(BodyBB);
-    NamedValues[VarName] = VarInfo{VarAlloca, Builder->getInt32Ty()};
+    NamedValues[VarName] = VarInfo{VarAlloca, Builder->getInt32Ty(), "int", nullptr};
     if (!Body->codegen()) return nullptr;
     llvm::Value *Next = Builder->CreateAdd(Cur, llvm::ConstantInt::get(Builder->getInt32Ty(), 1), "next_i");
     Builder->CreateStore(Next, VarAlloca);
@@ -1475,7 +1420,323 @@ llvm::Value *FixedStringDeclAST::codegen() {
     // [CRITICAL] Store BufferPtr into the variable, NOT InitVal!
     Builder->CreateStore(BufferPtr, VarAlloca); 
     
-    NamedValues[VarName] = VarInfo{VarAlloca, Builder->getPtrTy()};
+    NamedValues[VarName] = VarInfo{VarAlloca, Builder->getPtrTy(), "string[" + std::to_string(Capacity) + "]", nullptr};
 
     return BufferPtr;
+}
+
+// --- NEW ARRAY / LIST COMPILERS ---
+
+llvm::Function* getReallocFunc() {
+    llvm::Function *F = TheModule->getFunction("realloc");
+    if (!F) {
+        std::vector<llvm::Type*> Args = { Builder->getPtrTy(), Builder->getInt64Ty() };
+        llvm::FunctionType *FT = llvm::FunctionType::get(Builder->getPtrTy(), Args, false);
+        F = llvm::Function::Create(FT, llvm::Function::ExternalLinkage, "realloc", TheModule.get());
+    }
+    return F;
+}
+
+llvm::Value *ArrayExprAST::codegen() {
+    return LogErrorV("Raw array literals cannot be evaluated directly.");
+}
+
+llvm::Value *FixedArrayDeclAST::codegen() {
+    // Determine Element Type
+    llvm::Type *ElementType = Builder->getInt32Ty(); 
+    if (TypeName == "float") ElementType = Builder->getDoubleTy();
+    else if (TypeName == "string") ElementType = Builder->getPtrTy();
+    else if (TypeName == "bool" || TypeName == "char") ElementType = Builder->getInt8Ty();
+
+    // Allocate Array on the Stack
+    llvm::ArrayType *ArrayTy = llvm::ArrayType::get(ElementType, Size);
+    llvm::AllocaInst *ArrayAlloca = Builder->CreateAlloca(ArrayTy, nullptr, VarName);
+
+    // Initialize Elements if provided [a, b, c]
+    if (InitValue) {
+        if (auto *ArrayLit = dynamic_cast<ArrayExprAST*>(InitValue.get())) {
+            for (size_t i = 0; i < ArrayLit->Elements.size() && i < Size; i++) {
+                llvm::Value *Val = ArrayLit->Elements[i]->codegen();
+                if (!Val) return nullptr;
+                
+                // Automatic Type Casting
+                if (Val->getType() != ElementType) {
+                    if (Val->getType()->isIntegerTy() && ElementType->isFloatingPointTy()) 
+                        Val = Builder->CreateSIToFP(Val, ElementType);
+                    else if (Val->getType()->isFloatingPointTy() && ElementType->isIntegerTy()) 
+                        Val = Builder->CreateFPToSI(Val, ElementType);
+                    else if (Val->getType()->isIntegerTy() && ElementType->isIntegerTy())
+                        Val = Builder->CreateIntCast(Val, ElementType, true);
+                }
+                
+                llvm::Value *IdxList[] = { llvm::ConstantInt::get(Builder->getInt32Ty(), 0), 
+                                           llvm::ConstantInt::get(Builder->getInt32Ty(), i) };
+                llvm::Value *ElementPtr = Builder->CreateInBoundsGEP(ArrayTy, ArrayAlloca, IdxList, "element_ptr");
+                Builder->CreateStore(Val, ElementPtr);
+            }
+        }
+    }
+
+    NamedValues[VarName] = VarInfo{ArrayAlloca, ArrayTy, TypeName + "[" + std::to_string(Size) + "]", ElementType};
+    return ArrayAlloca;
+}
+
+llvm::Value *DynamicListDeclAST::codegen() {
+    // Determine Element Type
+    llvm::Type *ElementType = Builder->getInt32Ty(); 
+    if (TypeName == "float") ElementType = Builder->getDoubleTy();
+    else if (TypeName == "string") ElementType = Builder->getPtrTy();
+    else if (TypeName == "bool" || TypeName == "char") ElementType = Builder->getInt8Ty();
+
+    // Struct: { ElementType*, i32 len, i32 capacity }
+    llvm::StructType *ListStructTy = llvm::StructType::get(*TheContext, {
+        Builder->getPtrTy(),
+        Builder->getInt32Ty(),
+        Builder->getInt32Ty()
+    });
+
+    llvm::AllocaInst *ListAlloca = Builder->CreateAlloca(ListStructTy, nullptr, VarName);
+
+    // Calculate initial capacity & heap bytes
+    int initialCap = 8;
+    int elSize = ElementType->getPrimitiveSizeInBits() / 8;
+    if (elSize == 0 && ElementType->isPointerTy()) elSize = 8;
+
+    llvm::Value *BytesToAlloc = llvm::ConstantInt::get(Builder->getInt64Ty(), initialCap * elSize);
+    llvm::Value *BufferPtrRaw = Builder->CreateCall(getMallocFunc(), {BytesToAlloc}, "list_alloc");
+    trackForAutoFree(BufferPtrRaw);
+
+    // Setup fields
+    llvm::Value *PtrField = Builder->CreateStructGEP(ListStructTy, ListAlloca, 0);
+    Builder->CreateStore(BufferPtrRaw, PtrField);
+
+    llvm::Value *LenField = Builder->CreateStructGEP(ListStructTy, ListAlloca, 1);
+    Builder->CreateStore(llvm::ConstantInt::get(Builder->getInt32Ty(), 0), LenField);
+
+    llvm::Value *CapField = Builder->CreateStructGEP(ListStructTy, ListAlloca, 2);
+    Builder->CreateStore(llvm::ConstantInt::get(Builder->getInt32Ty(), initialCap), CapField);
+
+    // Initialize from literal [x, y, z]
+    if (InitValue) {
+        if (auto *ArrayLit = dynamic_cast<ArrayExprAST*>(InitValue.get())) {
+            for (size_t i = 0; i < ArrayLit->Elements.size(); i++) {
+                llvm::Value *Val = ArrayLit->Elements[i]->codegen();
+                if (!Val) return nullptr;
+                
+                if (Val->getType() != ElementType) {
+                    if (Val->getType()->isIntegerTy() && ElementType->isFloatingPointTy()) Val = Builder->CreateSIToFP(Val, ElementType);
+                    else if (Val->getType()->isFloatingPointTy() && ElementType->isIntegerTy()) Val = Builder->CreateFPToSI(Val, ElementType);
+                    else if (Val->getType()->isIntegerTy() && ElementType->isIntegerTy()) Val = Builder->CreateIntCast(Val, ElementType, true);
+                }
+
+                llvm::Value *IdxGEP = Builder->CreateGEP(ElementType, BufferPtrRaw, llvm::ConstantInt::get(Builder->getInt32Ty(), i), "init_idx");
+                Builder->CreateStore(Val, IdxGEP);
+            }
+            Builder->CreateStore(llvm::ConstantInt::get(Builder->getInt32Ty(), ArrayLit->Elements.size()), LenField);
+        }
+    }
+
+    NamedValues[VarName] = VarInfo{ListAlloca, ListStructTy, TypeName + "[]", ElementType};
+    return ListAlloca;
+}
+
+llvm::Value *IndexAssignAST::codegen() {
+    auto *VarAst = dynamic_cast<VariableAST*>(Obj.get());
+    if (!VarAst) return LogErrorV("Cannot assign to non-variable index");
+    
+    std::string name = VarAst->getName();
+    if (NamedValues.find(name) == NamedValues.end()) return LogErrorV("Unknown variable in index assignment");
+
+    VarInfo &info = NamedValues[name];
+    llvm::Value *Idx = Index->codegen();
+    llvm::Value *Val = Value->codegen();
+    if (!Idx || !Val) return nullptr;
+
+    if (info.Type->isArrayTy()) {
+        llvm::Value *IdxList[] = { llvm::ConstantInt::get(Builder->getInt32Ty(), 0), Idx };
+        llvm::Value *ElementPtr = Builder->CreateInBoundsGEP(info.Type, info.Alloca, IdxList, "arr_write");
+        Builder->CreateStore(Val, ElementPtr);
+        return Val;
+    } else if (info.Type->isStructTy()) {
+        llvm::Value *PtrField = Builder->CreateStructGEP(info.Type, info.Alloca, 0);
+        llvm::Value *BufferPtr = Builder->CreateLoad(Builder->getPtrTy(), PtrField);
+        llvm::Value *ElementPtr = Builder->CreateGEP(info.ElementType, BufferPtr, Idx, "list_write");
+        Builder->CreateStore(Val, ElementPtr);
+        return Val;
+    } else if (info.Type->isPointerTy()) {
+        // String / Pointer mutation
+        llvm::Value *BufferPtr = Builder->CreateLoad(Builder->getPtrTy(), info.Alloca);
+        llvm::Value *Idx64 = Idx->getType()->getIntegerBitWidth() < 64
+                             ? Builder->CreateSExt(Idx, Builder->getInt64Ty())
+                             : (Idx->getType()->getIntegerBitWidth() > 64 ? Builder->CreateTrunc(Idx, Builder->getInt64Ty()) : Idx);
+
+        llvm::Value *StrLen = Builder->CreateCall(getStrlenFunc(), {BufferPtr});
+        llvm::Value *Zero64 = llvm::ConstantInt::get(Builder->getInt64Ty(), 0);
+        llvm::Value *IsNeg = Builder->CreateICmpSLT(Idx64, Zero64);
+        llvm::Value *AdjustedIdx = Builder->CreateSelect(IsNeg, Builder->CreateAdd(Idx64, StrLen), Idx64);
+
+        llvm::Value *ElementPtr = Builder->CreateGEP(Builder->getInt8Ty(), BufferPtr, AdjustedIdx, "str_write");
+        
+        // Ensure the value being stored is an 8-bit character
+        if (Val->getType() != Builder->getInt8Ty()) {
+            if (Val->getType()->isIntegerTy()) {
+                Val = Builder->CreateTrunc(Val, Builder->getInt8Ty(), "char_cast");
+            } else {
+                return LogErrorV("Can only assign characters (or integers) to a string index");
+            }
+        }
+        
+        Builder->CreateStore(Val, ElementPtr);
+        return Val;
+    } else {
+        return LogErrorV("Cannot index into this specific type.");
+    }
+}
+
+llvm::Value *MethodCallAST::codegen() {
+    llvm::Value *ObjVal = Obj->codegen();
+    if (!ObjVal) return nullptr;
+
+    auto *VarAst = dynamic_cast<VariableAST*>(Obj.get());
+    std::string ObjName = VarAst ? VarAst->getName() : "";
+
+    // 1. DYNAMIC LIST METHODS (Heap Lists)
+    if (!ObjName.empty() && NamedValues.find(ObjName) != NamedValues.end()) {
+        VarInfo &info = NamedValues[ObjName];
+        if (info.Type->isStructTy()) {
+            if (MethodName == "push") {
+                if (Args.size() != 1) return LogErrorV("push() requires exactly 1 argument.");
+                llvm::Value *Val = Args[0]->codegen();
+                if (!Val) return nullptr;
+
+                llvm::Value *PtrField = Builder->CreateStructGEP(info.Type, info.Alloca, 0);
+                llvm::Value *LenField = Builder->CreateStructGEP(info.Type, info.Alloca, 1);
+                llvm::Value *CapField = Builder->CreateStructGEP(info.Type, info.Alloca, 2);
+
+                llvm::Value *BufferPtr = Builder->CreateLoad(Builder->getPtrTy(), PtrField, "buf_ptr");
+                llvm::Value *Len = Builder->CreateLoad(Builder->getInt32Ty(), LenField, "len");
+                llvm::Value *Cap = Builder->CreateLoad(Builder->getInt32Ty(), CapField, "cap");
+
+                llvm::Value *IsFull = Builder->CreateICmpEQ(Len, Cap, "is_full");
+
+                llvm::Function *TheFunction = Builder->GetInsertBlock()->getParent();
+                llvm::BasicBlock *ReallocBB = llvm::BasicBlock::Create(*TheContext, "realloc_bb", TheFunction);
+                llvm::BasicBlock *PushBB = llvm::BasicBlock::Create(*TheContext, "push_bb");
+
+                Builder->CreateCondBr(IsFull, ReallocBB, PushBB);
+
+                // --- REALLOC BLOCK ---
+                Builder->SetInsertPoint(ReallocBB);
+                llvm::Value *NewCap = Builder->CreateMul(Cap, llvm::ConstantInt::get(Builder->getInt32Ty(), 2), "new_cap");
+                Builder->CreateStore(NewCap, CapField);
+
+                llvm::Value *NewCap64 = Builder->CreateZExt(NewCap, Builder->getInt64Ty());
+                uint64_t elSize = info.ElementType->getPrimitiveSizeInBits() / 8;
+                if (elSize == 0 && info.ElementType->isPointerTy()) elSize = 8;
+                
+                llvm::Value *Bytes64 = Builder->CreateMul(NewCap64, llvm::ConstantInt::get(Builder->getInt64Ty(), elSize), "bytes");
+
+                llvm::Value *NewBufferPtr = Builder->CreateCall(getReallocFunc(), {BufferPtr, Bytes64}, "new_buffer");
+                Builder->CreateStore(NewBufferPtr, PtrField);
+                
+                // Re-track memory for AutoFree feature (if realloc moved it)
+                trackForAutoFree(NewBufferPtr); 
+                
+                Builder->CreateBr(PushBB);
+
+                // --- PUSH BLOCK ---
+                TheFunction->insert(TheFunction->end(), PushBB);
+                Builder->SetInsertPoint(PushBB);
+
+                llvm::Value *FinalBufferPtr = Builder->CreateLoad(Builder->getPtrTy(), PtrField);
+                llvm::Value *IdxGEP = Builder->CreateGEP(info.ElementType, FinalBufferPtr, Len, "push_idx");
+                Builder->CreateStore(Val, IdxGEP);
+
+                llvm::Value *NewLen = Builder->CreateAdd(Len, llvm::ConstantInt::get(Builder->getInt32Ty(), 1), "new_len");
+                Builder->CreateStore(NewLen, LenField);
+
+                return llvm::Constant::getNullValue(Builder->getDoubleTy());
+            }
+            else if (MethodName == "pop") {
+                llvm::Value *LenField = Builder->CreateStructGEP(info.Type, info.Alloca, 1);
+                llvm::Value *Len = Builder->CreateLoad(Builder->getInt32Ty(), LenField, "len");
+                
+                llvm::Value *NewLen = Builder->CreateSub(Len, llvm::ConstantInt::get(Builder->getInt32Ty(), 1), "new_len");
+                Builder->CreateStore(NewLen, LenField);
+                
+                llvm::Value *PtrField = Builder->CreateStructGEP(info.Type, info.Alloca, 0);
+                llvm::Value *BufferPtr = Builder->CreateLoad(Builder->getPtrTy(), PtrField, "buf_ptr");
+                llvm::Value *IdxGEP = Builder->CreateGEP(info.ElementType, BufferPtr, NewLen, "pop_idx");
+                return Builder->CreateLoad(info.ElementType, IdxGEP, "pop_val");
+            }
+            else if (MethodName == "len") {
+                llvm::Value *LenField = Builder->CreateStructGEP(info.Type, info.Alloca, 1);
+                return Builder->CreateLoad(Builder->getInt32Ty(), LenField, "len");
+            }
+            else if (MethodName == "clear") {
+                llvm::Value *LenField = Builder->CreateStructGEP(info.Type, info.Alloca, 1);
+                Builder->CreateStore(llvm::ConstantInt::get(Builder->getInt32Ty(), 0), LenField);
+                return llvm::Constant::getNullValue(Builder->getDoubleTy());
+            }
+        }
+    }
+
+    // 2. STRING NATIVE METHODS
+    if (ObjVal->getType()->isPointerTy()) {
+        if (MethodName == "len") {
+            llvm::Value *Len64 = Builder->CreateCall(getStrlenFunc(), {ObjVal}, "len_val");
+            return Builder->CreateIntCast(Len64, Builder->getInt32Ty(), false, "len_32");
+        }
+        else if (MethodName == "isupper") return Builder->CreateCall(getQuantaIsUpperFunc(), {ObjVal}, "isup_res");
+        else if (MethodName == "islower") return Builder->CreateCall(getQuantaIsLowerFunc(), {ObjVal}, "islow_res");
+        else if (MethodName == "isalpha") return Builder->CreateCall(getQuantaIsAlphaFunc(), {ObjVal}, "isalpha_res");
+        else if (MethodName == "isdigit") return Builder->CreateCall(getQuantaIsDigitFunc(), {ObjVal}, "isdigit_res");
+        else if (MethodName == "isspace") return Builder->CreateCall(getQuantaIsSpaceFunc(), {ObjVal}, "isspace_res");
+        else if (MethodName == "isalnum") return Builder->CreateCall(getQuantaIsAlnumFunc(), {ObjVal}, "isalnum_res");
+
+        // String Modifiers (Retain trackForAutoFree buffer)
+        else if (MethodName == "upper" || MethodName == "lower" || MethodName == "reverse" ||
+                 MethodName == "strip" || MethodName == "lstrip" || MethodName == "rstrip" ||
+                 MethodName == "capitalize" || MethodName == "title") {
+            
+            llvm::Value *NewStr = nullptr;
+            if (MethodName == "upper")        NewStr = Builder->CreateCall(getQuantaUpperFunc(), {ObjVal}, "up_res");
+            else if (MethodName == "lower")   NewStr = Builder->CreateCall(getQuantaLowerFunc(), {ObjVal}, "low_res");
+            else if (MethodName == "reverse") NewStr = Builder->CreateCall(getQuantaReverseFunc(), {ObjVal}, "rev_res");
+            else if (MethodName == "strip")   NewStr = Builder->CreateCall(getQuantaStripFunc(), {ObjVal}, "strip_res");
+            else if (MethodName == "lstrip")  NewStr = Builder->CreateCall(getQuantaLstripFunc(), {ObjVal}, "lstrip_res");
+            else if (MethodName == "rstrip")  NewStr = Builder->CreateCall(getQuantaRstripFunc(), {ObjVal}, "rstrip_res");
+            else if (MethodName == "capitalize") NewStr = Builder->CreateCall(getQuantaCapitalizeFunc(), {ObjVal}, "cap_res");
+            else if (MethodName == "title")   NewStr = Builder->CreateCall(getQuantaTitleFunc(), {ObjVal}, "title_res");
+            if (NewStr) trackForAutoFree(NewStr);
+            return NewStr;
+        }
+
+        // 2 Argument Modifiers
+        else if (MethodName == "find" || MethodName == "count" || MethodName == "startswith" || MethodName == "endswith") {
+            if (Args.size() != 1) return LogErrorV((MethodName + " requires exactly 1 argument.").c_str());
+            llvm::Value *SubVal = Args[0]->codegen();
+            if (!SubVal || !SubVal->getType()->isPointerTy()) return LogErrorV("Expected a string argument");
+            
+            if (MethodName == "find")       return Builder->CreateCall(getQuantaFindFunc(), {ObjVal, SubVal}, "find_res");
+            else if (MethodName == "count")      return Builder->CreateCall(getQuantaCountFunc(), {ObjVal, SubVal}, "count_res");
+            else if (MethodName == "startswith") return Builder->CreateCall(getQuantaStartswithFunc(), {ObjVal, SubVal}, "startswith_res");
+            else if (MethodName == "endswith")   return Builder->CreateCall(getQuantaEndswithFunc(), {ObjVal, SubVal}, "endswith_res");
+        }
+
+        // 3 Argument Modifier
+        else if (MethodName == "replace") {
+            if (Args.size() != 2) return LogErrorV("replace() requires exactly 2 arguments");
+            llvm::Value *OldVal = Args[0]->codegen();
+            llvm::Value *NewVal = Args[1]->codegen();
+            if (!OldVal || !NewVal || !OldVal->getType()->isPointerTy() || !NewVal->getType()->isPointerTy()) 
+                return LogErrorV("replace() requires string arguments");
+            
+            llvm::Value *NewStr = Builder->CreateCall(getQuantaReplaceFunc(), {ObjVal, OldVal, NewVal}, "replace_res");
+            trackForAutoFree(NewStr);
+            return NewStr;
+        }
+    }
+    
+    return LogErrorV(("Unsupported method '" + MethodName + "' on object").c_str());
 }

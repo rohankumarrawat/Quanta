@@ -322,6 +322,24 @@ std::unique_ptr<ASTNode> parsePrimary() {
         return expr;
     }
 
+    // --- 6.5 ARRAYS / LISTS [a, b, c] ---
+    if (t.value == "[") {
+        advance(); // Eat '['
+        std::vector<std::unique_ptr<ASTNode>> Elements;
+        if (getTok().value != "]") {
+            while (true) {
+                auto arg = parseExpression();
+                if (!arg) return nullptr;
+                Elements.push_back(std::move(arg));
+                if (getTok().value == "]") break;
+                if (getTok().value != ",") return LogError("Expected ',' or ']' in array literal");
+                advance(); // Eat ','
+            }
+        }
+        advance(); // Eat ']'
+        return std::make_unique<ArrayExprAST>(std::move(Elements));
+    }
+
     // --- 7. LOOPS ---
     if (t.type == TOK_LOOP) {
         return parseLoop();
@@ -355,150 +373,28 @@ std::unique_ptr<ASTNode> parsePrimary() {
     
 
     // --- 8.5 STRING KEYWORDS (single-arg: len, upper, strip, etc.) ---
-    if (t.type == TOK_LEN || t.type == TOK_UPPER || t.type == TOK_LOWER ||
-        t.type == TOK_REVERSE || t.type == TOK_ISUPPER || t.type == TOK_ISLOWER ||
-        t.type == TOK_STRIP || t.type == TOK_LSTRIP || t.type == TOK_RSTRIP ||
-        t.type == TOK_CAPITALIZE || t.type == TOK_TITLE ||
-        t.type == TOK_ISALPHA || t.type == TOK_ISDIGIT || t.type == TOK_ISSPACE || t.type == TOK_ISALNUM) {
-        
-        int OpType = t.type;
-        advance(); // Eat the keyword
-        
-        if (getTok().value != "(") return LogError("Expected '(' after string keyword");
-        advance(); // Eat '('
-        
-        auto operand = parseExpression();
-        if (!operand) return nullptr;
-        
-        if (getTok().value != ")") return LogError("Expected ')' after string expression");
-        advance(); // Eat ')'
-        
-        return std::make_unique<StringOpAST>(OpType, std::move(operand));
-    }
-    // --- 8.6 STRING KEYWORDS (two-arg: find, count, startswith, endswith) ---
-    if (t.type == TOK_FIND || t.type == TOK_COUNT || t.type == TOK_STARTSWITH || t.type == TOK_ENDSWITH) {
-        int OpType = t.type;
-        advance();
-        if (getTok().value != "(") return LogError("Expected '(' after string keyword");
-        advance();
-        auto op1 = parseExpression();
-        if (!op1) return nullptr;
-        if (getTok().value != ",") return LogError("Expected ',' between string and substring");
-        advance();
-        auto op2 = parseExpression();
-        if (!op2) return nullptr;
-        if (getTok().value != ")") return LogError("Expected ')' after second argument");
-        advance();
-        return std::make_unique<StringOp2AST>(OpType, std::move(op1), std::move(op2));
-    }
-    // --- 8.7 STRING KEYWORD (three-arg: replace(s, old, new)) ---
-    if (t.type == TOK_REPLACE) {
-        advance();
-        if (getTok().value != "(") return LogError("Expected '(' after replace");
-        advance();
-        auto op1 = parseExpression();
-        if (!op1) return nullptr;
-        if (getTok().value != ",") return LogError("Expected ',' in replace(s, old, new)");
-        advance();
-        auto op2 = parseExpression();
-        if (!op2) return nullptr;
-        if (getTok().value != ",") return LogError("Expected ',' before replacement string");
-        advance();
-        auto op3 = parseExpression();
-        if (!op3) return nullptr;
-        if (getTok().value != ")") return LogError("Expected ')' after replace arguments");
-        advance();
-        return std::make_unique<StringOp3AST>(TOK_REPLACE, std::move(op1), std::move(op2), std::move(op3));
-    }
+    // Standalone string keyword functions have been migrated to OOP methods
     // --- 9. IDENTIFIERS, MODULE ACCESS & CALLS ---
  if (t.type == TOK_IDENTIFIER) {
         // [CRITICAL] 1. Define IdName FIRST
-        std::string IdName = t.value; 
-
         // --- Inside your variable declaration parsing logic ---
-      
-        // ============================================================
-        // [NEW] STRING KEYWORD INTERCEPTOR
-        // Catch keywords that were accidentally lexed as identifiers
-        // ============================================================
-        if (IdName == "len" || IdName == "upper" || IdName == "lower" || IdName == "reverse" ||
-            IdName == "isupper" || IdName == "islower" || IdName == "strip" || IdName == "lstrip" ||
-            IdName == "rstrip" || IdName == "capitalize" || IdName == "title" || IdName == "isalpha" ||
-            IdName == "isdigit" || IdName == "isspace" || IdName == "isalnum") {
-            int OpType = (IdName == "len") ? TOK_LEN : (IdName == "upper") ? TOK_UPPER : (IdName == "lower") ? TOK_LOWER
-                : (IdName == "reverse") ? TOK_REVERSE : (IdName == "isupper") ? TOK_ISUPPER : (IdName == "islower") ? TOK_ISLOWER
-                : (IdName == "strip") ? TOK_STRIP : (IdName == "lstrip") ? TOK_LSTRIP : (IdName == "rstrip") ? TOK_RSTRIP
-                : (IdName == "capitalize") ? TOK_CAPITALIZE : (IdName == "title") ? TOK_TITLE : (IdName == "isalpha") ? TOK_ISALPHA
-                : (IdName == "isdigit") ? TOK_ISDIGIT : (IdName == "isspace") ? TOK_ISSPACE : TOK_ISALNUM;
-            advance();
-            if (getTok().value != "(") return LogError("Expected '(' after string keyword");
-            advance();
-            auto operand = parseExpression();
-            if (!operand) return nullptr;
-            if (getTok().value != ")") return LogError("Expected ')' after string expression");
-            advance();
-            return std::make_unique<StringOpAST>(OpType, std::move(operand));
-        }
-        if (IdName == "find" || IdName == "count" || IdName == "startswith" || IdName == "endswith") {
-            int OpType = (IdName == "find") ? TOK_FIND : (IdName == "count") ? TOK_COUNT : (IdName == "startswith") ? TOK_STARTSWITH : TOK_ENDSWITH;
-            advance();
-            if (getTok().value != "(") return LogError("Expected '(' after string keyword");
-            advance();
-            auto op1 = parseExpression();
-            if (!op1) return nullptr;
-            if (getTok().value != ",") return LogError("Expected ',' between string and substring");
-            advance();
-            auto op2 = parseExpression();
-            if (!op2) return nullptr;
-            if (getTok().value != ")") return LogError("Expected ')' after second argument");
-            advance();
-            return std::make_unique<StringOp2AST>(OpType, std::move(op1), std::move(op2));
-        }
-        if (IdName == "replace") {
-            advance();
-            if (getTok().value != "(") return LogError("Expected '(' after replace");
-            advance();
-            auto op1 = parseExpression();
-            if (!op1) return nullptr;
-            if (getTok().value != ",") return LogError("Expected ',' in replace(s, old, new)");
-            advance();
-            auto op2 = parseExpression();
-            if (!op2) return nullptr;
-            if (getTok().value != ",") return LogError("Expected ',' before replacement string");
-            advance();
-            auto op3 = parseExpression();
-            if (!op3) return nullptr;
-            if (getTok().value != ")") return LogError("Expected ')' after replace arguments");
-            advance();
-            return std::make_unique<StringOp3AST>(TOK_REPLACE, std::move(op1), std::move(op2), std::move(op3));
-        }
-        // ============================================================
+        std::string IdName = t.value; 
         advance(); // Eat Identifier Token
 
         // --- 2. MODULE LOGIC (test.getArea) ---
-        // This block handles calls like 'test.getArea()'
+        // We evaluate if it's a module. If it's an object property access (.push()), we drop down and let Postfix handle it.
         if (getTok().type == TOK_DOT) {
-            std::string ModuleName = IdName; 
-            advance(); // Eat '.'
-
-            if (getTok().type != TOK_IDENTIFIER) {
-                return LogError("Expected function name after '.'");
-            }
-            
-            // Check if imported
+            std::string ModuleName = IdName;
             std::string ExpectedFile = ModuleName + ".qnt";
-            if (LoadedModules.find(ExpectedFile) == LoadedModules.end()) {
-                return LogError(("Module '" + ModuleName + "' was not imported.").c_str());
+            if (LoadedModules.find(ExpectedFile) != LoadedModules.end()) {
+                advance(); // Eat '.'
+                std::string FuncName = getTok().value;
+                if (FunctionRegistry.find(FuncName) == FunctionRegistry.end()) {
+                     return LogError(("Error: Function '" + FuncName + "' is not defined in module '" + ModuleName + "'.").c_str());
+                }
+                IdName = FuncName; // Update to function name
+                advance(); // Eat function name
             }
-
-            // Check if function exists in module (Specific Check)
-            std::string FuncName = getTok().value;
-            if (FunctionRegistry.find(FuncName) == FunctionRegistry.end()) {
-                 return LogError(("Error: Function '" + FuncName + "' is not defined in module '" + ModuleName + "'.").c_str());
-            }
-
-            IdName = FuncName; // Update to function name
-            advance(); 
         }
 
         // --- 3. FUNCTION CALL LOGIC (identifier(...)) ---
@@ -814,17 +710,29 @@ std::unique_ptr<ASTNode> parseVarDecl() {
 
    
     int capacity = 0; 
+    bool isDynamicList = false;
+    bool isFixedArray = false;
+    bool isFixedString = false;
     
-    // Check if the type is "string" and the very next token is "["
-    if (typeTok.type == TOK_STRING && getTok().value == "[") {
+    // Check if the very next token is "["
+    if (getTok().value == "[") {
         advance(); // Eat '['
-        
-        if (getTok().type != TOK_NUMBER) return LogError("Expected a number for string capacity (e.g., string[32])");
-        capacity = std::stoi(getTok().value); 
-        advance(); // Eat the number
-        
-        if (getTok().value != "]") return LogError("Expected ']' after string capacity");
-        advance(); // Eat ']'
+        if (getTok().value == "]") {
+            isDynamicList = true;
+            advance(); // Eat ']'
+        } else if (getTok().type == TOK_NUMBER) {
+            capacity = std::stoi(getTok().value);
+            if (typeTok.type == TOK_STRING) {
+                isFixedString = true;
+            } else {
+                isFixedArray = true;
+            }
+            advance(); // Eat the number
+            if (getTok().value != "]") return LogError("Expected ']' after capacity");
+            advance(); // Eat ']'
+        } else {
+            return LogError("Expected number or ']' after '[' in type declaration");
+        }
     }
     // ==========================================================
     
@@ -924,9 +832,14 @@ std::unique_ptr<ASTNode> parseVarDecl() {
         }
     }
 
-    // Fixed-size string: string[N] name = "..." → use FixedStringDeclAST so codegen truncates
-    if (capacity > 0) {
+    if (isFixedString) {
         return std::make_unique<FixedStringDeclAST>(name, capacity, std::move(init));
+    }
+    if (isDynamicList) {
+        return std::make_unique<DynamicListDeclAST>(name, typeStr, std::move(init));
+    }
+    if (isFixedArray) {
+        return std::make_unique<FixedArrayDeclAST>(name, typeStr, capacity, std::move(init));
     }
     return std::make_unique<VarDeclAST>(name, typeStr, bytes, std::move(init));
 }
@@ -975,6 +888,16 @@ std::unique_ptr<ASTNode> parsePostfix() {
         if (!first) return nullptr;
         if (getTok().value == "]") {
             advance();
+            
+            // --- NEW: Array/String Index Assignment arr[i] = x ---
+            if (getTok().value == "=") {
+                advance(); // Eat '='
+                auto RHS = parseExpression();
+                if (!RHS) return nullptr;
+                LHS = std::make_unique<IndexAssignAST>(std::move(LHS), std::move(first), std::move(RHS));
+                continue;
+            }
+            
             LHS = std::make_unique<StringIndexAST>(std::move(LHS), std::move(first));
             continue;
         }
@@ -997,13 +920,58 @@ std::unique_ptr<ASTNode> parsePostfix() {
     }
 
     // Check for operator immediately after variable
-    if (getTok().type == TOK_INC || getTok().type == TOK_DEC) {
-        auto *Var = dynamic_cast<VariableAST*>(LHS.get());
-        if (!Var) return LogError("Operand of ++/-- must be a variable");
-        bool isInc = (getTok().type == TOK_INC);
-        advance();
-        return std::make_unique<UpdateExprAST>(Var->Name, isInc, false);
+    while (getTok().type == TOK_INC || getTok().type == TOK_DEC || getTok().type == TOK_DOT) {
+        if (getTok().type == TOK_INC || getTok().type == TOK_DEC) {
+            auto *Var = dynamic_cast<VariableAST*>(LHS.get());
+            if (!Var) return LogError("Operand of ++/-- must be a variable");
+            bool isInc = (getTok().type == TOK_INC);
+            advance();
+            LHS = std::make_unique<UpdateExprAST>(Var->Name, isInc, false);
+            continue;
+        }
+
+        if (getTok().type == TOK_DOT) {
+            advance(); // Eat '.'
+            
+            // Allow native property/method names, plus string keywords that have been hijacked
+            if (getTok().type != TOK_IDENTIFIER && 
+                getTok().type != TOK_LEN && getTok().type != TOK_UPPER &&
+                getTok().type != TOK_LOWER && getTok().type != TOK_REVERSE &&
+                getTok().type != TOK_STRIP && getTok().type != TOK_REPLACE &&
+                getTok().type != TOK_FIND && getTok().type != TOK_COUNT &&
+                getTok().type != TOK_STARTSWITH && getTok().type != TOK_ENDSWITH &&
+                getTok().type != TOK_ISUPPER && getTok().type != TOK_ISLOWER &&
+                getTok().type != TOK_ISALPHA && getTok().type != TOK_ISDIGIT &&
+                getTok().type != TOK_ISSPACE && getTok().type != TOK_ISALNUM &&
+                getTok().type != TOK_CAPITALIZE && getTok().type != TOK_TITLE &&
+                getTok().type != TOK_LSTRIP && getTok().type != TOK_RSTRIP) {
+                return LogError(("Expected method name after '.', got: " + getTok().value).c_str());
+            }
+            
+            std::string MethodName = getTok().value;
+            advance(); // Eat method name
+
+            if (getTok().value != "(") return LogError("Expected '(' after method name");
+            advance(); // Eat '('
+
+            std::vector<std::unique_ptr<ASTNode>> args;
+            if (getTok().value != ")") {
+                while (true) {
+                    auto arg = parseExpression();
+                    if (!arg) return nullptr;
+                    args.push_back(std::move(arg));
+                    if (getTok().value == ")") break;
+                    if (getTok().value != ",") return LogError("Expected ',' in method args");
+                    advance(); // eat ','
+                }
+            }
+            advance(); // Eat ')'
+            
+            LHS = std::make_unique<MethodCallAST>(std::move(LHS), MethodName, std::move(args));
+            continue;
+        }
     }
+    
     return LHS;
 }
 

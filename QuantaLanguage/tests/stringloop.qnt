@@ -11,7 +11,7 @@ loop i in s {
 }
 
 print("========== 2. loop i in string + s[i] (character) ==========");
-string word = "Quanta";
+ word = "Quanta";
 print("Characters of Quanta:");
 loop i in word {
     print(word[i]);

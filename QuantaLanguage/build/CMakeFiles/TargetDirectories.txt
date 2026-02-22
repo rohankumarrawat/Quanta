@@ -1,3 +1,0 @@
-/Users/rohan/Desktop/Quanta/QuantaLanguage/build/CMakeFiles/quanta.dir
-/Users/rohan/Desktop/Quanta/QuantaLanguage/build/CMakeFiles/edit_cache.dir
-/Users/rohan/Desktop/Quanta/QuantaLanguage/build/CMakeFiles/rebuild_cache.dir
