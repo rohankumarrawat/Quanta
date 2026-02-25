@@ -11,6 +11,35 @@
 extern bool HasError;
 extern std::map<int, int> BinopPrecedence;
 
+// --- quanta_lib C runtime declarations ---
+#ifdef __cplusplus
+extern "C" {
+#endif
+void  quanta_panic(const char* msg);
+char* quanta_upper(const char* str);
+char* quanta_lower(const char* str);
+char* quanta_reverse(const char* str);
+int   quanta_isupper(const char* str);
+int   quanta_islower(const char* str);
+char* quanta_strip(const char* str);
+char* quanta_lstrip(const char* str);
+char* quanta_rstrip(const char* str);
+char* quanta_capitalize(const char* str);
+char* quanta_title(const char* str);
+int   quanta_isalpha(const char* str);
+int   quanta_isdigit(const char* str);
+int   quanta_isspace(const char* str);
+int   quanta_isalnum(const char* str);
+int   quanta_find(const char* str, const char* sub);
+int   quanta_count(const char* str, const char* sub);
+int   quanta_startswith(const char* str, const char* prefix);
+int   quanta_endswith(const char* str, const char* suffix);
+char* quanta_replace(const char* str, const char* old, const char* newstr);
+char* quanta_slice(const char* s, int start, int end, int step);
+#ifdef __cplusplus
+}
+#endif
+
 // --- 1. LEXER (Vocabulary) ---
 enum TokenType {
     TOK_EOF = -1,

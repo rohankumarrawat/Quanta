@@ -147,6 +147,51 @@ if (HasError) {
     }
     MainJD.addGenerator(std::move(*ProcessSymsGen));
 
+    // Explicitly register all quanta_lib symbols so they are always
+    // visible to the JIT even when the linker strips dead exports.
+    {
+        // These functions are defined in quanta_lib.c (C linkage)
+        // declared in extern "C" at the top of this file
+        auto &ES = (*JIT)->getExecutionSession();
+        auto EF = llvm::JITSymbolFlags::None |
+                  llvm::JITSymbolFlags::Callable |
+                  llvm::JITSymbolFlags::Exported;
+
+        llvm::orc::SymbolMap libSyms;
+        auto addSym = [&](const char* name, void* ptr) {
+            libSyms[ES.intern(name)] = {
+                llvm::orc::ExecutorAddr::fromPtr(ptr), EF
+            };
+        };
+
+        addSym("quanta_panic",      (void*)quanta_panic);
+        addSym("quanta_upper",      (void*)quanta_upper);
+        addSym("quanta_lower",      (void*)quanta_lower);
+        addSym("quanta_reverse",    (void*)quanta_reverse);
+        addSym("quanta_isupper",    (void*)quanta_isupper);
+        addSym("quanta_islower",    (void*)quanta_islower);
+        addSym("quanta_strip",      (void*)quanta_strip);
+        addSym("quanta_lstrip",     (void*)quanta_lstrip);
+        addSym("quanta_rstrip",     (void*)quanta_rstrip);
+        addSym("quanta_capitalize", (void*)quanta_capitalize);
+        addSym("quanta_title",      (void*)quanta_title);
+        addSym("quanta_isalpha",    (void*)quanta_isalpha);
+        addSym("quanta_isdigit",    (void*)quanta_isdigit);
+        addSym("quanta_isspace",    (void*)quanta_isspace);
+        addSym("quanta_isalnum",    (void*)quanta_isalnum);
+        addSym("quanta_find",       (void*)quanta_find);
+        addSym("quanta_count",      (void*)quanta_count);
+        addSym("quanta_startswith", (void*)quanta_startswith);
+        addSym("quanta_endswith",   (void*)quanta_endswith);
+        addSym("quanta_replace",    (void*)quanta_replace);
+        addSym("quanta_slice",      (void*)quanta_slice);
+
+        if (auto Err = MainJD.define(llvm::orc::absoluteSymbols(std::move(libSyms)))) {
+            llvm::errs() << "[Warning] Could not register quanta_lib symbols: "
+                         << llvm::toString(std::move(Err)) << "\n";
+        }
+    }
+
 #ifdef _WIN32
     // On Windows/MinGW, the C runtime startup calls __main() for global constructors.
     // Our JIT-compiled code doesn't use global constructors, so we provide a no-op stub
