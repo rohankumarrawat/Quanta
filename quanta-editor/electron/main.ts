@@ -1,6 +1,8 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
+import * as pty from 'node-pty';
 import { exec } from 'child_process';
 
 let mainWindow: BrowserWindow | null = null;
@@ -60,6 +62,41 @@ app.whenReady().then(() => {
     });
 });
 
+// ─── PTY TERMINAL INTEGRATION ───────────────────────────────────────────────
+const shell = os.platform() === 'win32' ? 'powershell.exe' : process.env.SHELL || 'bash';
+let ptyProcess: pty.IPty | null = null;
+
+function initPty() {
+    ptyProcess = pty.spawn(shell, [], {
+        name: 'xterm-color',
+        cols: 80,
+        rows: 24,
+        cwd: process.env.HOME,
+        env: process.env as any
+    });
+
+    ptyProcess.onData((data) => {
+        if (mainWindow) {
+            mainWindow.webContents.send('terminal:data', data);
+        }
+    });
+}
+
+// Initialize PTY immediately
+initPty();
+
+ipcMain.on('terminal:input', (_, data) => {
+    if (ptyProcess) {
+        ptyProcess.write(data);
+    }
+});
+
+ipcMain.on('terminal:resize', (_, cols: number, rows: number) => {
+    if (ptyProcess) {
+        ptyProcess.resize(cols, rows);
+    }
+});
+
 app.on('window-all-closed', () => {
     // macOS: keep app running until CMD+Q
     if (process.platform !== 'darwin') {
@@ -91,7 +128,21 @@ ipcMain.handle('dialog:openDirectory', async () => {
         properties: ['openDirectory']
     });
     if (canceled || filePaths.length === 0) return null;
-    return filePaths[0];
+
+    const dirPath = filePaths[0];
+
+    // Automatically cd the terminal to the new directory
+    if (ptyProcess) {
+        // We write the command followed by a return/enter character '\r'
+        ptyProcess.write(`cd "${dirPath}"\r`);
+        if (os.platform() !== 'win32') {
+            ptyProcess.write('clear\r');
+        } else {
+            ptyProcess.write('cls\r');
+        }
+    }
+
+    return dirPath; // Returns absolute path
 });
 
 interface FileNode {

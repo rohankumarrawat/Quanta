@@ -53,6 +53,7 @@ std::unique_ptr<ASTNode> parseIfExpr();
 std::unique_ptr<ASTNode> parseExpression();
 std::unique_ptr<ASTNode> parseUnary();
 std::unique_ptr<FunctionAST> parseFunction();
+std::unique_ptr<ASTNode> parseStatement();
 
 
 Token getTok() {
@@ -227,38 +228,99 @@ void parseImport() {
         }
     }
 }
-std::unique_ptr<ASTNode> parseLoop() {
-    advance(); // Eat 'loop'
+std::unique_ptr<ASTNode> parseWhile() {
+    advance(); // Eat 'while'
 
-    // loop i in string { body } -- index loop over string
-    if (getTok().type == TOK_IDENTIFIER) {
-        std::string varName = getTok().value;
-        advance();
-        if (getTok().type != TOK_IN) return LogError("Expected 'in' after loop variable");
-        advance();
-        auto strExpr = parseExpression();
-        if (!strExpr) return nullptr;
-        if (getTok().value != "{") return LogError("Expected '{' to start loop body");
-        auto bodyStmts = parseBlock();
-        auto Body = std::make_unique<BlockAST>(std::move(bodyStmts));
-        return std::make_unique<LoopOverStringAST>(varName, std::move(strExpr), std::move(Body));
-    }
-
-    if (getTok().value != "(") return LogError("Expected '(' after loop or 'id in expr'");
+    if (getTok().value != "(") return LogError("Expected '(' after while");
     advance(); 
 
     auto Cond = parseExpression();
     if (!Cond) return nullptr;
 
-    if (getTok().value != ")") return LogError("Expected ')' after loop condition");
+    if (getTok().value != ")") return LogError("Expected ')' after while condition");
     advance(); 
 
-    if (getTok().value != "{") return LogError("Expected '{' to start loop body");
+    if (getTok().value != "{") return LogError("Expected '{' to start while body");
     
     auto bodyStmts = parseBlock();
     auto Body = std::make_unique<BlockAST>(std::move(bodyStmts));
 
-    return std::make_unique<LoopAST>(std::move(Cond), std::move(Body));
+    return std::make_unique<WhileAST>(std::move(Cond), std::move(Body));
+}
+
+std::unique_ptr<ASTNode> parseForCStyle() {
+    advance(); // Eat '('
+
+    std::unique_ptr<ASTNode> Init = nullptr;
+    if (getTok().value != ";") {
+        Init = parseStatement();
+    }
+    if (getTok().value != ";") return LogError("Expected ';' after for loop init");
+    advance(); // Eat ';'
+
+    std::unique_ptr<ASTNode> Cond = nullptr;
+    if (getTok().value != ";") {
+        Cond = parseExpression();
+    } else {
+        Cond = std::make_unique<BoolAST>(true);
+    }
+    if (getTok().value != ";") return LogError("Expected ';' after for loop condition");
+    advance(); // Eat ';'
+
+    std::unique_ptr<ASTNode> Step = nullptr;
+    if (getTok().value != ")") {
+        Step = parseExpression();
+    }
+    if (getTok().value != ")") return LogError("Expected ')' after for loop step");
+    advance(); // Eat ')'
+
+    if (getTok().value != "{") return LogError("Expected '{' to start for loop body");
+    
+    auto bodyStmts = parseBlock();
+
+    std::vector<std::unique_ptr<ASTNode>> WhileBodyStmts;
+    for (auto& stmt : bodyStmts) {
+        WhileBodyStmts.push_back(std::move(stmt));
+    }
+    if (Step) {
+        WhileBodyStmts.push_back(std::move(Step));
+    }
+    
+    auto WhileBody = std::make_unique<BlockAST>(std::move(WhileBodyStmts));
+    auto WhileStmt = std::make_unique<WhileAST>(std::move(Cond), std::move(WhileBody));
+
+    std::vector<std::unique_ptr<ASTNode>> OuterBlockStmts;
+    if (Init) {
+        OuterBlockStmts.push_back(std::move(Init));
+    }
+    OuterBlockStmts.push_back(std::move(WhileStmt));
+
+    return std::make_unique<BlockAST>(std::move(OuterBlockStmts));
+}
+
+std::unique_ptr<ASTNode> parseFor() {
+    advance(); // Eat 'for'
+
+    if (getTok().value == "(") {
+        return parseForCStyle();
+    }
+
+    if (getTok().type != TOK_IDENTIFIER) return LogError("Expected variable name after for");
+    std::string varName = getTok().value;
+    advance();
+
+    if (getTok().type != TOK_IN) return LogError("Expected 'in' after for variable");
+    advance();
+
+    auto iterableExpr = parseExpression();
+    if (!iterableExpr) return nullptr;
+
+    if (getTok().value != "{") return LogError("Expected '{' to start for body");
+    
+    auto bodyStmts = parseBlock();
+    auto Body = std::make_unique<BlockAST>(std::move(bodyStmts));
+
+    return std::make_unique<ForIterableAST>(varName, std::move(iterableExpr), std::move(Body));
 }
 
 std::unique_ptr<ASTNode> parseExpression();
@@ -367,8 +429,11 @@ std::unique_ptr<ASTNode> parsePrimary() {
     }
 
     // --- 7. LOOPS ---
-    if (t.type == TOK_LOOP) {
-        return parseLoop();
+    if (t.type == TOK_WHILE) {
+        return parseWhile();
+    }
+    if (t.type == TOK_FOR) {
+        return parseFor();
     }
 
     // --- EXCEPTION HANDLING ---

@@ -140,7 +140,8 @@ std::vector<Token> tokenize(std::string source) {
                    else if (idStr == "if") type = TOK_IF;
             else if (idStr == "elif") type = TOK_ELIF; 
             else if (idStr == "else") type = TOK_ELSE;
-            else if (idStr == "loop") type= TOK_LOOP;
+            else if (idStr == "while") type = TOK_WHILE;
+            else if (idStr == "for") type = TOK_FOR;
             else if (idStr == "return") type = TOK_RETURN;
             else if (idStr == "void") type = TOK_VOID;
             else if (idStr == "import") type = TOK_IMPORT;

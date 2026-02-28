@@ -1,5 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Editor, { useMonaco } from '@monaco-editor/react';
+import { Terminal } from 'xterm';
+import { FitAddon } from 'xterm-addon-fit';
+import 'xterm/css/xterm.css';
 import { Sidebar } from './components/Sidebar';
 import './components/vscode.css';
 import './App.css';// ─── Icons ───────────────────────────────────────────────────────────────────
@@ -86,27 +89,99 @@ export default function App() {
     const activeTab = openTabs.find(t => t.path === activeTabPath) || openTabs[0];
     const code = activeTab?.content || '';
     const currentFile = activeTab?.path === 'untitled' ? null : activeTab?.path;
-    const fileName = activeTab?.name || 'Untitled.qnt';
     const isDirty = activeTab?.isDirty || false;
+
+    // Refs so async handlers always get the latest values (no stale closures)
+    const codeRef = useRef(code);
+    const activeTabPathRef = useRef(activeTabPath);
+    codeRef.current = code;
+    activeTabPathRef.current = activeTabPath;
 
     const setCode = (newContent: string) => {
         setOpenTabs(tabs => tabs.map(t =>
-            t.path === activeTabPath ? { ...t, content: newContent, isDirty: true } : t
+            t.path === activeTabPathRef.current ? { ...t, content: newContent, isDirty: true } : t
         ));
     };
     const setIsDirty = (dirty: boolean) => {
         setOpenTabs(tabs => tabs.map(t =>
-            t.path === activeTabPath ? { ...t, isDirty: dirty } : t
+            t.path === activeTabPathRef.current ? { ...t, isDirty: dirty } : t
         ));
     };
     const setCurrentFile = (path: string | null) => {
         if (!path) return;
         setActiveTabPath(path);
     };
-    const setFileName = (_name: string) => { };
     const [editorKey, setEditorKey] = useState<number>(0);
-    const [output, setOutput] = useState<string>('');
     const [isCompiling, setIsCompiling] = useState<boolean>(false);
+
+    // ─── XTERM INTEGRATION ──────────────────────────────────────────────────
+    const terminalContainerRef = useRef<HTMLDivElement>(null);
+    const terminalRef = useRef<Terminal | null>(null);
+    const fitAddonRef = useRef<FitAddon | null>(null);
+
+    useEffect(() => {
+        if (!terminalContainerRef.current) return;
+
+        // Initialize terminal once
+        if (terminalRef.current) return;
+
+        const term = new Terminal({
+            theme: {
+                background: '#000000',
+                foreground: '#cccccc',
+                cursor: '#4f46e5'
+            },
+            fontFamily: 'Consolas, "Courier New", monospace',
+            fontSize: 13,
+            cursorBlink: true
+        });
+
+        const fitAddon = new FitAddon();
+        term.loadAddon(fitAddon);
+
+        term.open(terminalContainerRef.current);
+        fitAddon.fit();
+
+        terminalRef.current = term;
+        fitAddonRef.current = fitAddon;
+
+        // Route frontend keystrokes -> main process (node-pty)
+        term.onData((data) => {
+            if (window.electronAPI?.terminalInput) {
+                window.electronAPI.terminalInput(data);
+            }
+        });
+
+        // Route main process (node-pty) text -> frontend xterm
+        if (window.electronAPI?.onTerminalData) {
+            window.electronAPI.onTerminalData((data: string) => {
+                term.write(data);
+            });
+        }
+
+        // Handle window resize dynamically fitting the prompt map grids
+        const handleResize = () => {
+            if (fitAddonRef.current && terminalRef.current) {
+                fitAddonRef.current.fit();
+                if (window.electronAPI?.resizeTerminal) {
+                    window.electronAPI.resizeTerminal(term.cols, term.rows);
+                }
+            }
+        };
+        window.addEventListener('resize', handleResize);
+
+        // Tell node-pty about the initial sizing buffer
+        if (window.electronAPI?.resizeTerminal) {
+            window.electronAPI.resizeTerminal(term.cols, term.rows);
+        }
+
+        return () => {
+            window.removeEventListener('resize', handleResize);
+            term.dispose();
+            terminalRef.current = null;
+            fitAddonRef.current = null;
+        };
+    }, []);
 
     const [terminalHeight, setTerminalHeight] = useState<number>(210);
     const [showHelp, setShowHelp] = useState<boolean>(false);
@@ -249,7 +324,7 @@ export default function App() {
 
         // ── Syntax Highlighting Tokens ───────────────────────────────────────
         monaco.languages.setMonarchTokensProvider('quanta', {
-            keywords: ['fn', 'let', 'if', 'elif', 'else', 'return', 'while', 'for', 'loop', 'in',
+            keywords: ['fn', 'let', 'if', 'elif', 'else', 'return', 'while', 'for', 'in',
                 'class', 'struct', 'import', 'print', 'true', 'false', 'null',
                 'and', 'or', 'not', 'break', 'continue', 'new', 'self', 'var', 'void'],
             tokenizer: {
@@ -257,7 +332,7 @@ export default function App() {
                     [/@.*$/, 'comment'],             // @ single-line comment
                     [/'''/, 'comment', '@tripleS'],  // ''' block comment
                     [/"""/, 'comment', '@tripleD'],  // """ block comment
-                    [/\b(fn|let|if|elif|else|return|while|for|loop|in|class|struct|import|print|true|false|null|and|or|not|break|continue|new|self|var|void)\b/, 'keyword'],
+                    [/\b(fn|let|if|elif|else|return|while|for|in|class|struct|import|print|true|false|null|and|or|not|break|continue|new|self|var|void)\b/, 'keyword'],
                     [/"([^"\\]|\\.)*"/, 'string'],
                     [/\b\d+(\.\d+)?\b/, 'number'],
                     [/[{}()\[\]]/, '@brackets'],
@@ -303,7 +378,7 @@ export default function App() {
 
                 const suggestions = [
                     // Keywords
-                    ...['if', 'elif', 'else', 'return', 'loop', 'in',
+                    ...['if', 'elif', 'else', 'return', 'while', 'for', 'in',
                         'import', 'print', 'true', 'false', 'null',
                         'var', 'void', 'bool', 'int', 'float', 'string', 'char', 'all', 'push', 'pop', 'len'].map(k => ({
                             label: k,
@@ -336,11 +411,19 @@ export default function App() {
                         range
                     },
                     {
-                        label: 'loop',
+                        label: 'while',
                         kind: monaco.languages.CompletionItemKind.Snippet,
-                        insertText: ['loop (${1:condition}) {', '\t$0', '}'].join('\n'),
+                        insertText: ['while (${1:condition}) {', '\t$0', '}'].join('\n'),
                         insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-                        documentation: 'Loop statement',
+                        documentation: 'While loop',
+                        range
+                    },
+                    {
+                        label: 'for',
+                        kind: monaco.languages.CompletionItemKind.Snippet,
+                        insertText: ['for ${1:item} in ${2:iterable} {', '\t$0', '}'].join('\n'),
+                        insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+                        documentation: 'For loop',
                         range
                     }
                 ];
@@ -349,9 +432,10 @@ export default function App() {
         });
     }, [monaco]);
 
-    const handleEditorChange = useCallback((value: string | undefined) => {
+    const handleEditorChange = (value: string | undefined) => {
         if (value !== undefined) { setCode(value); setIsDirty(true); }
-    }, []);
+    };
+
 
     // ── Open Folder ────────────────────────────────────────────────────────────
     const handleOpenFolder = async () => {
@@ -419,7 +503,7 @@ export default function App() {
         const path = 'untitled-' + Date.now();
         setOpenTabs(prev => [...prev, { path, name: 'Untitled.qnt', content: DEFAULT_CODE, isDirty: false }]);
         setActiveTabPath(path);
-        setOutput('');
+        if (terminalRef.current) terminalRef.current.clear();
         setEditorKey(k => k + 1);
     };
 
@@ -427,41 +511,48 @@ export default function App() {
     const handleSaveFile = async () => {
         try {
             if (window.electronAPI) {
-                if (currentFile) {
-                    await window.electronAPI.saveFile(currentFile, code);
-                    setIsDirty(false);
-                    setOutput(`Saved: ${currentFile}`);
+                // Use refs so we always get the latest code/path regardless of stale closure
+                const latestCode = editorRef.current?.getValue() ?? codeRef.current;
+                const latestPath = activeTabPathRef.current;
+                const latestFile = latestPath === 'untitled' || latestPath.startsWith('untitled-') ? null : latestPath;
+
+                if (latestFile) {
+                    await window.electronAPI.saveFile(latestFile, latestCode);
+                    setOpenTabs(tabs => tabs.map(t =>
+                        t.path === latestPath ? { ...t, isDirty: false } : t
+                    ));
+                    if (terminalRef.current) terminalRef.current.write(`Saved: ${latestFile}\r\n`);
                 } else {
-                    const result = await window.electronAPI.saveFileAs(code);
+                    const result = await window.electronAPI.saveFileAs(latestCode);
                     if (result) {
                         setOpenTabs(tabs => tabs.map(t =>
-                            t.path === activeTabPath ? { ...t, path: result.filePath, name: result.fileName, isDirty: false } : t
+                            t.path === latestPath ? { ...t, path: result.filePath, name: result.fileName, isDirty: false } : t
                         ));
                         setActiveTabPath(result.filePath);
-                        setOutput(`Saved: ${result.filePath}`);
+                        if (terminalRef.current) terminalRef.current.write(`Saved: ${result.filePath}\r\n`);
                     }
                 }
             }
-        } catch (e: any) { setOutput(`Error saving: ${e.message}`); }
+        } catch (e: any) { if (terminalRef.current) terminalRef.current.write(`Error saving: ${e.message}\r\n`); }
     };
 
     // ── AI Code Generation ─────────────────────────────────────────────────────
     const handleGenerateCode = async () => {
         if (!aiPrompt.trim()) return;
         if (!apiKey) {
-            setOutput("Error: Please provide a Gemini API Key to use AI Code Generation.");
+            if (terminalRef.current) terminalRef.current.write("Error: Please provide a Gemini API Key to use AI Code Generation.\r\n");
             return;
         }
 
         setIsGenerating(true);
-        setOutput("Generating code with Gemini...");
+        if (terminalRef.current) terminalRef.current.write("Generating code with Gemini...\r\n");
 
         try {
             if (window.electronAPI) {
                 const result = await window.electronAPI.aiGenerate(aiPrompt, apiKey);
 
                 if (result.error) {
-                    setOutput(`AI Error: ${result.error}`);
+                    if (terminalRef.current) terminalRef.current.write(`AI Error: ${result.error}\r\n`);
                 } else if (result.code) {
 
                     // Save key for future use if successful
@@ -482,15 +573,15 @@ export default function App() {
                     }
 
                     setIsDirty(true);
-                    setOutput("AI Code Generation Complete!");
+                    if (terminalRef.current) terminalRef.current.write("AI Code Generation Complete!\r\n");
                     setShowAiModal(false);
                     setAiPrompt('');
                 }
             } else {
-                setOutput("Error: AI Generation requires the desktop app.");
+                if (terminalRef.current) terminalRef.current.write("Error: AI Generation requires the desktop app.\r\n");
             }
         } catch (e: any) {
-            setOutput(`Fatal AI Error: ${e.message}`);
+            if (terminalRef.current) terminalRef.current.write(`Fatal AI Error: ${e.message}\r\n`);
         } finally {
             setIsGenerating(false);
         }
@@ -499,38 +590,38 @@ export default function App() {
     // ── Run ────────────────────────────────────────────────────────────────────
     const handleRun = async () => {
         if (!window.electronAPI) {
-            setOutput('Compiler requires the desktop app.');
+            if (terminalRef.current) terminalRef.current.write('Compiler requires the desktop app.\r\n');
             return;
         }
-        let targetFile = currentFile;
+        // Use refs to always get the current code and tab path
+        const latestCode = editorRef.current?.getValue() ?? codeRef.current;
+        const latestPath = activeTabPathRef.current;
+        const latestFile = latestPath === 'untitled' || latestPath.startsWith('untitled-') ? null : latestPath;
+        let targetFile = latestFile;
         if (!targetFile) {
-            const result = await window.electronAPI.saveFileAs(code);
-            if (result) { targetFile = result.filePath; setCurrentFile(result.filePath); setFileName(result.fileName); setIsDirty(false); }
-            else { setOutput('Save the file first to run.'); return; }
+            const result = await window.electronAPI.saveFileAs(latestCode);
+            if (result) { targetFile = result.filePath; setCurrentFile(result.filePath); setIsDirty(false); }
+            else { if (terminalRef.current) terminalRef.current.write('Save the file first to run.\r\n'); return; }
         } else {
-            await window.electronAPI.saveFile(targetFile, code);
+            await window.electronAPI.saveFile(targetFile, latestCode);
             setIsDirty(false);
         }
         setIsCompiling(true);
-        setOutput('');
+        if (terminalRef.current) terminalRef.current.clear();
         try {
             const result = await window.electronAPI.executeCompiler(targetFile!);
             // Always combine stdout + stderr so nothing is lost
             const combined = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
             if (result.error) {
                 // Show whatever output the compiler produced, fall back to the error message
-                setOutput(combined || result.error);
+                if (terminalRef.current) terminalRef.current.write((combined || result.error) + '\r\n');
             } else {
-                setOutput(combined || 'Done (no output).');
+                if (terminalRef.current) terminalRef.current.write((combined || 'Done (no output).') + '\r\n');
             }
-        } catch (e: any) { setOutput(`Fatal error: ${e.message}`); }
+        } catch (e: any) { if (terminalRef.current) terminalRef.current.write(`Fatal error: ${e.message}\r\n`); }
         finally { setIsCompiling(false); }
     };
-
-    // ── Run Test Cases (Practice Mode) ─────────────────────────────────────────
     const handleRunTestCases = async () => {
-        if (!practiceProblem) return;
-        setActiveBottomTab('testcases');
         setIsVerifying(true);
         setHasPassedAll(false);
 
@@ -543,13 +634,18 @@ export default function App() {
         // Set to pending state initially
         setTestCaseResults(mockTests.map(tc => ({ ...tc, status: 'pending', actual: '' })));
 
-        let targetFile = currentFile;
+        // Use refs to always get the current code and tab path
+        const latestCode = editorRef.current?.getValue() ?? codeRef.current;
+        const latestPath = activeTabPathRef.current;
+        const latestFile = latestPath === 'untitled' || latestPath.startsWith('untitled-') ? null : latestPath;
+        let targetFile = latestFile;
+
         if (!targetFile) {
-            const result = await window.electronAPI.saveFileAs(code);
-            if (result) { targetFile = result.filePath; setCurrentFile(result.filePath); setFileName(result.fileName); setIsDirty(false); }
+            const result = await window.electronAPI.saveFileAs(latestCode);
+            if (result) { targetFile = result.filePath; setCurrentFile(result.filePath); setIsDirty(false); }
             else { setIsVerifying(false); return; }
         } else {
-            await window.electronAPI.saveFile(targetFile, code);
+            await window.electronAPI.saveFile(targetFile, latestCode);
             setIsDirty(false);
         }
 
@@ -611,12 +707,12 @@ export default function App() {
 
     const handleAiSuggest = async () => {
         if (!editorRef.current || !window.electronAPI) {
-            setOutput('AI Suggest requires the Desktop App.');
+            if (terminalRef.current) terminalRef.current.write('AI Suggest requires the Desktop App.\r\n');
             return;
         }
         const storedKey = localStorage.getItem('quanta_gemini_key') || apiKey;
         if (!storedKey) {
-            setOutput('Error: Configure your Gemini API Key first using the Generate button.');
+            if (terminalRef.current) terminalRef.current.write('Error: Configure your Gemini API Key first using the Generate button.\r\n');
             return;
         }
         setIsAiSuggestLoading(true);
@@ -628,20 +724,21 @@ export default function App() {
         try {
             const result = await window.electronAPI.aiGenerate(prompt, storedKey);
             if (result.error) {
-                setOutput(`AI Suggest Error: ${result.error}`);
+                if (terminalRef.current) terminalRef.current.write(`AI Suggest Error: ${result.error}\r\n`);
             } else if (result.code) {
                 // Store suggestion and trigger Monaco ghost text
                 pendingSuggestionRef.current = '\n' + result.code;
-                editorRef.current.trigger('', 'editor.action.inlineSuggest.trigger', {});
-                setOutput('💡 AI suggestion ready! Press Tab to accept, Esc to dismiss.');
+                if (editorRef.current) {
+                    editorRef.current.trigger('', 'editor.action.inlineSuggest.trigger', {});
+                }
+                if (terminalRef.current) terminalRef.current.write('💡 AI suggestion ready! Press Tab to accept, Esc to dismiss.\r\n');
             }
         } catch (e: any) {
-            setOutput(`AI Suggest Fatal Error: ${e.message}`);
+            if (terminalRef.current) terminalRef.current.write(`AI Suggest Fatal Error: ${e.message}\r\n`);
         } finally {
             setIsAiSuggestLoading(false);
         }
     };
-
 
     useEffect(() => {
         const k = (e: KeyboardEvent) => {
@@ -680,8 +777,6 @@ export default function App() {
         };
     }, []);
 
-    const isError = output.startsWith('Error') || output.startsWith('Fatal');
-
     // ── Practice Mode (LeetCode) ───────────────────────────────────────────────
     const handleFetchPractice = async (overrideSearch?: string) => {
         const raw = overrideSearch ?? practiceSearch;
@@ -696,17 +791,17 @@ export default function App() {
             .replace(/[^a-z0-9]+/g, '-'); // Replace spaces and special chars with hyphens
 
         setIsFetchingProblem(true);
-        setOutput(`Fetching LeetCode problem: ${formattedSlug}...`);
+        if (terminalRef.current) terminalRef.current.write(`Fetching LeetCode problem: ${formattedSlug}...\r\n`);
 
         try {
             if (window.electronAPI) {
                 const result = await window.electronAPI.fetchLeetcode(formattedSlug);
                 if (result.error) {
-                    setOutput(`Error: ${result.error}`);
+                    if (terminalRef.current) terminalRef.current.write(`Error: ${result.error}\r\n`);
                     setPracticeProblem(null);
                 } else if (result.data) {
                     setPracticeProblem(result.data);
-                    setOutput(`Loaded: ${result.data.title}`);
+                    if (terminalRef.current) terminalRef.current.write(`Loaded: ${result.data.title}\r\n`);
                     // Start the practice timer
                     setPracticeStartTime(Date.now());
                     setPracticeElapsedTime(0);
@@ -743,11 +838,12 @@ export default function App() {
                     setShowSuggestions(false);
                 }
             } else {
-                setOutput("Error: Practice Mode requires the Desktop App. LeetCode blocks standard web browsers (CORS).");
+                if (terminalRef.current) terminalRef.current.write("Error: Practice Mode requires the Desktop App. LeetCode blocks standard web browsers (CORS).\r\n");
                 setPracticeProblem(null);
             }
         } catch (e: any) {
-            setOutput(`Failed to fetch: ${e.message}`);
+            if (terminalRef.current) terminalRef.current.write(`Failed to fetch: ${e.message}\r\n`);
+            setPracticeProblem(null);
         } finally {
             setIsFetchingProblem(false);
         }
@@ -997,6 +1093,7 @@ export default function App() {
                     <div
                         className="resizer"
                         onMouseDown={() => { isDragging.current = true; document.body.style.cursor = 'row-resize'; }}
+                        onMouseUp={() => { if (fitAddonRef.current) fitAddonRef.current.fit(); }}
                     />
 
                     {/* Terminal */}
@@ -1032,21 +1129,12 @@ export default function App() {
                                         )}
                                     </>
                                 )}
-                                <button className="terminal-clear" onClick={() => setOutput('')}>✕ Clear</button>
+                                <button className="terminal-clear" onClick={() => { if (terminalRef.current) { terminalRef.current.clear(); } }}>✕ Clear</button>
                             </div>
                         </div>
-                        <div className="terminal-body">
+                        <div className="terminal-body" style={{ padding: 0, overflow: 'hidden' }}>
                             {activeBottomTab === 'terminal' ? (
-                                output ? (
-                                    <>
-                                        <span className="term-prompt">$ quanta </span>
-                                        <span className="term-fname">{fileName}</span>
-                                        {'\n\n'}
-                                        <span className={isError ? 'term-error' : 'term-out'}>{output}</span>
-                                    </>
-                                ) : (
-                                    <span className="term-empty">Press ▶ Run Code to execute your program…</span>
-                                )
+                                <div ref={terminalContainerRef} style={{ width: '100%', height: '100%' }} />
                             ) : (
                                 <div className="test-cases-panel">
                                     {testCaseResults.length === 0 ? (
@@ -1184,8 +1272,8 @@ export default function App() {
                                 {helpTab === 'Loops' && (
                                     <div className="help-section animated">
                                         <h3>Loops</h3>
-                                        <p>An infinite/conditional `loop` keyword replaces standard while/for.</p>
-                                        <pre><code>int i = 0;{'\n'}loop (i &lt; 5) {'{\n'}  print(i);{'\n'}  i++;{'\n'}{'}'}</code></pre>
+                                        <p>Standard <code>while</code> and <code>for</code> loops for iteration.</p>
+                                        <pre><code>int i = 0;{'\n'}while (i &lt; 5) {'{\n'}  print(i);{'\n'}  i++;{'\n'}{'}'}{'\n\n'}@ C-style and Iterable for loops{'\n'}for (int j = 0; j &lt; 5; j++) {'{\n'}  print(j);{'\n'}{'}'}{'\n\n'}for c in "Hello" {'{\n'}  print(c);{'\n'}{'}'}</code></pre>
                                     </div>
                                 )}
 

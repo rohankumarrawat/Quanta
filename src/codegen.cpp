@@ -1350,7 +1350,7 @@ void generateObjectCode() {
     std::cout << "[Success] Native object file 'output.o' created!" << std::endl;
 }
 
-llvm::Value *LoopAST::codegen() {
+llvm::Value *WhileAST::codegen() {
     llvm::Function *TheFunction = Builder->GetInsertBlock()->getParent();
 
     // 1. Create Basic Blocks for the loop structure
@@ -1661,11 +1661,11 @@ llvm::Value *StringSliceAST::codegen() {
     return NewStr;
 }
 
-llvm::Value *LoopOverStringAST::codegen() {
+llvm::Value *ForIterableAST::codegen() {
     llvm::Function *TheFunction = Builder->GetInsertBlock()->getParent();
 
     // 1. Evaluate the iterable expression
-    llvm::Value *IterableVal = StringExpr->codegen();
+    llvm::Value *IterableVal = IterableExpr->codegen();
     if (!IterableVal) return nullptr;
 
     llvm::Type *IterableTy = IterableVal->getType();
@@ -1677,7 +1677,7 @@ llvm::Value *LoopOverStringAST::codegen() {
     std::string QuantaTypeName = "char";
 
     // Attempt to extract array/list length dynamically
-    if (auto *VarAst = dynamic_cast<VariableAST*>(StringExpr.get())) {
+    if (auto *VarAst = dynamic_cast<VariableAST*>(IterableExpr.get())) {
         std::string name = VarAst->getName();
         if (NamedValues.find(name) != NamedValues.end()) {
             VarInfo &info = NamedValues[name];

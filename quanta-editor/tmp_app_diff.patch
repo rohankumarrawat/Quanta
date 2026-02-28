@@ -1,0 +1,1880 @@
+diff --git a/quanta-editor/src/App.tsx b/quanta-editor/src/App.tsx
+index 07ba248..65202ed 100644
+--- a/quanta-editor/src/App.tsx
++++ b/quanta-editor/src/App.tsx
+@@ -1,5 +1,7 @@
+-import { useState, useEffect, useCallback, useRef } from 'react';
+-import Editor, { useMonaco } from '@monaco-editor/react';
++```javascript
++import React, { useState, useEffect, useRef, useCallback } from 'react';
++import Editor from '@monaco-editor/react';
++import { useLocation } from 'react-router-dom';
+ import { Sidebar } from './components/Sidebar';
+ import './components/vscode.css';
+ import './App.css';// ─── Icons ───────────────────────────────────────────────────────────────────
+@@ -108,6 +110,14 @@ export default function App() {
+     const [output, setOutput] = useState<string>('');
+     const [isCompiling, setIsCompiling] = useState<boolean>(false);
+ 
++    // Welcome / Recent Items State
++    const [recentItems, setRecentItems] = useState<RecentItem[]>(() => {
++        try {
++            const saved = localStorage.getItem('quanta_recent_items');
++            return saved ? JSON.parse(saved) : [];
++        } catch { return []; }
++    });
++
+     const [terminalHeight, setTerminalHeight] = useState<number>(210);
+     const [showHelp, setShowHelp] = useState<boolean>(false);
+     const [helpTab, setHelpTab] = useState<string>('Variables & Types');
+@@ -190,15 +200,15 @@ export default function App() {
+         '1899. Merge Triplets to Form Target Triplet',
+     ];
+ 
+-    const monaco = useMonaco();
++    const monaco = useRef<any>(null); // Use useRef for monaco instance
+ 
+     // ── Register Quanta language ───────────────────────────────────────────────
+     useEffect(() => {
+-        if (!monaco) return;
+-        monaco.languages.register({ id: 'quanta' });
++        if (!monaco.current) return;
++        monaco.current.languages.register({ id: 'quanta' });
+ 
+         // ── AI Inline Completions Provider (VS Code Copilot Style) ────────────
+-        monaco.languages.registerInlineCompletionsProvider('quanta', {
++        monaco.current.languages.registerInlineCompletionsProvider('quanta', {
+             provideInlineCompletions: async (_model: any, position: any) => {
+                 const suggestion = pendingSuggestionRef.current;
+                 if (!suggestion) return { items: [] };
+@@ -220,7 +230,7 @@ export default function App() {
+         } as any);
+ 
+         // ── Language Configuration (Auto-Closing Brackets) ───────────────────
+-        monaco.languages.setLanguageConfiguration('quanta', {
++        monaco.current.languages.setLanguageConfiguration('quanta', {
+             comments: {
+                 lineComment: '@',
+                 blockComment: ["'''", "'''"]
+@@ -248,7 +258,7 @@ export default function App() {
+         });
+ 
+         // ── Syntax Highlighting Tokens ───────────────────────────────────────
+-        monaco.languages.setMonarchTokensProvider('quanta', {
++        monaco.current.languages.setMonarchTokensProvider('quanta', {
+             keywords: ['fn', 'let', 'if', 'elif', 'else', 'return', 'while', 'for', 'loop', 'in',
+                 'class', 'struct', 'import', 'print', 'true', 'false', 'null',
+                 'and', 'or', 'not', 'break', 'continue', 'new', 'self', 'var', 'void'],
+@@ -267,7 +277,7 @@ export default function App() {
+                 tripleD: [[/"""/, 'comment', '@pop'], [/./, 'comment']],
+             }
+         });
+-        monaco.editor.defineTheme('quantaTheme', {
++        monaco.current.editor.defineTheme('quantaTheme', {
+             base: 'vs-dark', inherit: true,
+             rules: [
+                 { token: 'keyword', foreground: 'c678dd', fontStyle: 'bold' },
+@@ -291,7 +301,7 @@ export default function App() {
+         });
+ 
+         // ── Autocomplete / IntelliSense ───────────────────────────────────────
+-        monaco.languages.registerCompletionItemProvider('quanta', {
++        monaco.current.languages.registerCompletionItemProvider('quanta', {
+             provideCompletionItems: (model, position) => {
+                 const word = model.getWordUntilPosition(position);
+                 const range = {
+@@ -307,622 +317,648 @@ export default function App() {
+                         'import', 'print', 'true', 'false', 'null',
+                         'var', 'void', 'bool', 'int', 'float', 'string', 'char', 'all', 'push', 'pop', 'len'].map(k => ({
+                             label: k,
+-                            kind: monaco.languages.CompletionItemKind.Keyword,
++                            kind: monaco.current.languages.CompletionItemKind.Keyword,
+                             insertText: k,
+                             range
+                         })),
+                     // Built-in functions & methods
+                     ...['print', 'len', 'upper', 'lower', 'reverse', 'strip', 'lstrip', 'rstrip', 'capitalize', 'title', 'isalpha', 'isdigit', 'isspace', 'isalnum', 'find', 'count', 'startswith', 'endswith', 'replace', 'push', 'pop'].map(fn => ({
+                         label: fn,
+-                        kind: monaco.languages.CompletionItemKind.Function,
+-                        insertText: `${fn}()`,
++                        kind: monaco.current.languages.CompletionItemKind.Function,
++                        insertText: `${ fn } ()`,
+                         range
+                     })),
+                     // Snippets
+                     {
+                         label: 'func',
+-                        kind: monaco.languages.CompletionItemKind.Snippet,
+-                        insertText: ['${1:int} ${2:name}(${3:args}) {', '\t$0', '}'].join('\n'),
+-                        insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+-                        documentation: 'Function declaration',
+-                        range
++                        kind: monaco.current.languages.CompletionItemKind.Snippet,
++                        insertText: ['${1: int} ${ 2: name } (${ 3: args }) { ', '\t$0', ' } '].join('\n'),
++insertTextRules: monaco.current.languages.CompletionItemInsertTextRule.InsertAsSnippet,
++    documentation: 'Function declaration',
++        range
+                     },
+-                    {
+-                        label: 'if',
+-                        kind: monaco.languages.CompletionItemKind.Snippet,
+-                        insertText: ['if (${1:condition}) {', '\t$0', '}'].join('\n'),
+-                        insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+-                        documentation: 'If statement',
++{
++    label: 'if',
++        kind: monaco.current.languages.CompletionItemKind.Snippet,
++            insertText: ['if (${1:condition}) {', '\t$0', '}'].join('\n'),
++                insertTextRules: monaco.current.languages.CompletionItemInsertTextRule.InsertAsSnippet,
++                    documentation: 'If statement',
+                         range
+-                    },
+-                    {
+-                        label: 'loop',
+-                        kind: monaco.languages.CompletionItemKind.Snippet,
+-                        insertText: ['loop (${1:condition}) {', '\t$0', '}'].join('\n'),
+-                        insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+-                        documentation: 'Loop statement',
++},
++{
++    label: 'loop',
++        kind: monaco.current.languages.CompletionItemKind.Snippet,
++            insertText: ['loop (${1:condition}) {', '\t$0', '}'].join('\n'),
++                insertTextRules: monaco.current.languages.CompletionItemInsertTextRule.InsertAsSnippet,
++                    documentation: 'Loop statement',
+                         range
+-                    }
++}
+                 ];
+-                return { suggestions };
++return { suggestions };
+             }
+         });
+     }, [monaco]);
+ 
+-    const handleEditorChange = useCallback((value: string | undefined) => {
+-        if (value !== undefined) { setCode(value); setIsDirty(true); }
+-    }, []);
+-
+-    // ── Open Folder ────────────────────────────────────────────────────────────
+-    const handleOpenFolder = async () => {
+-        if (!window.electronAPI) return;
+-        const root = await window.electronAPI.openDirectory();
+-        if (root) {
+-            setProjectRoot(root);
+-            const tree = await window.electronAPI.readDirectory(root);
+-            setProjectTree(tree);
+-            setSidebarVisible(true);
+-        }
+-    };
+-
+-    const handleOpenFileFromSidebar = async (path: string, name: string) => {
+-        if (openTabs.find(t => t.path === path)) {
++const handleEditorChange = useCallback((value: string | undefined) => {
++    if (value !== undefined) { setCode(value); setIsDirty(true); }
++}, []);
++
++// ── Open Folder ────────────────────────────────────────────────────────────
++const handleOpenFolder = async () => {
++    if (!window.electronAPI) return;
++    const root = await window.electronAPI.openDirectory();
++    if (root) {
++        setProjectRoot(root);
++        const tree = await window.electronAPI.readDirectory(root);
++        setProjectTree(tree);
++        setSidebarVisible(true);
++    }
++};
++
++const handleOpenFileFromSidebar = async (path: string, name: string) => {
++    if (openTabs.find(t => t.path === path)) {
++        setActiveTabPath(path);
++        return;
++    }
++    if (window.electronAPI) {
++        const content = await window.electronAPI.readFile(path);
++        if (content !== null) {
++            setOpenTabs(prev => [...prev, { path, name, content, isDirty: false }]);
+             setActiveTabPath(path);
+-            return;
+         }
++    }
++};
++
++const closeTab = (path: string, e: React.MouseEvent) => {
++    e.stopPropagation();
++    const newTabs = openTabs.filter(t => t.path !== path);
++    if (newTabs.length === 0) {
++        newTabs.push({ path: 'untitled', name: 'Untitled.qnt', content: DEFAULT_CODE, isDirty: false });
++    }
++    setOpenTabs(newTabs);
++    if (activeTabPath === path) {
++        setActiveTabPath(newTabs[newTabs.length - 1].path);
++    }
++};
++
++
++
++// ── AI Suggestion Debounce ────────────────────────────────────────────────
++useEffect(() => {
++    const handler = setTimeout(() => {
++        if (pendingSuggestionRef.current) {
++            // handleAiSuggest(); // Optional auto-trigger disabled for performance
++        }
++    }, 1500);
++    return () => clearTimeout(handler);
++}, [code]);
++
++// ── Practice Mode Timer ──────────────────────────────────────────────────
++useEffect(() => {
++    let interval: NodeJS.Timeout;
++    if (practiceProblem && practiceStartTime) {
++        interval = setInterval(() => {
++            setPracticeElapsedTime(Math.floor((Date.now() - practiceStartTime) / 1000));
++        }, 1000);
++    }
++    return () => clearInterval(interval);
++}, [practiceProblem, practiceStartTime]);
++
++// ── New File ───────────────────────────────────────────────────────────────
++const handleNewFile = () => {
++    const path = 'untitled-' + Date.now();
++    setOpenTabs(prev => [...prev, { path, name: 'Untitled.qnt', content: DEFAULT_CODE, isDirty: false }]);
++    setActiveTabPath(path);
++    setOutput('');
++    setEditorKey(k => k + 1);
++};
++
++// ── Save File ──────────────────────────────────────────────────────────────
++// Use refs so that keyboard shortcuts don't capture stale state
++const currentCodeRef = useRef(code);
++const currentFileRef = useRef(currentFile);
++useEffect(() => { currentCodeRef.current = code; }, [code]);
++useEffect(() => { currentFileRef.current = currentFile; }, [currentFile]);
++
++const handleSaveFile = useCallback(async () => {
++    try {
+         if (window.electronAPI) {
+-            const content = await window.electronAPI.readFile(path);
+-            if (content !== null) {
+-                setOpenTabs(prev => [...prev, { path, name, content, isDirty: false }]);
+-                setActiveTabPath(path);
++            const latestFile = currentFileRef.current;
++            const latestCode = currentCodeRef.current;
++            if (latestFile && latestFile !== 'untitled') {
++                await window.electronAPI.saveFile(latestFile, latestCode);
++                setIsDirty(false);
++                setOutput(`Saved: ${latestFile}`);
++            } else {
++                const result = await window.electronAPI.saveFileAs(latestCode);
++                if (result) {
++                    setOpenTabs(tabs => tabs.map(t =>
++                        t.path === activeTabPath ? { ...t, path: result.filePath, name: result.fileName, isDirty: false } : t
++                    ));
++                    setActiveTabPath(result.filePath);
++                    setCurrentFile(result.filePath);
++                    setFileName(result.fileName);
++                    setOutput(`Saved: ${result.filePath}`);
++                }
+             }
+         }
+-    };
+-
+-    const closeTab = (path: string, e: React.MouseEvent) => {
+-        e.stopPropagation();
+-        const newTabs = openTabs.filter(t => t.path !== path);
+-        if (newTabs.length === 0) {
+-            newTabs.push({ path: 'untitled', name: 'Untitled.qnt', content: DEFAULT_CODE, isDirty: false });
+-        }
+-        setOpenTabs(newTabs);
+-        if (activeTabPath === path) {
+-            setActiveTabPath(newTabs[newTabs.length - 1].path);
+-        }
+-    };
++    } catch (e: any) { setOutput(`Error saving: ${e.message}`); }
++}, [activeTabPath]);
+ 
++// ── AI Code Generation ─────────────────────────────────────────────────────
++const handleGenerateCode = async () => {
++    if (!aiPrompt.trim()) return;
++    if (!apiKey) {
++        setOutput("Error: Please provide a Gemini API Key to use AI Code Generation.");
++        return;
++    }
+ 
++    setIsGenerating(true);
++    setOutput("Generating code with Gemini...");
+ 
+-    // ── AI Suggestion Debounce ────────────────────────────────────────────────
+-    useEffect(() => {
+-        const handler = setTimeout(() => {
+-            if (pendingSuggestionRef.current) {
+-                // handleAiSuggest(); // Optional auto-trigger disabled for performance
+-            }
+-        }, 1500);
+-        return () => clearTimeout(handler);
+-    }, [code]);
+-
+-    // ── Practice Mode Timer ──────────────────────────────────────────────────
+-    useEffect(() => {
+-        let interval: NodeJS.Timeout;
+-        if (practiceProblem && practiceStartTime) {
+-            interval = setInterval(() => {
+-                setPracticeElapsedTime(Math.floor((Date.now() - practiceStartTime) / 1000));
+-            }, 1000);
+-        }
+-        return () => clearInterval(interval);
+-    }, [practiceProblem, practiceStartTime]);
+-
+-    // ── New File ───────────────────────────────────────────────────────────────
+-    const handleNewFile = () => {
+-        const path = 'untitled-' + Date.now();
+-        setOpenTabs(prev => [...prev, { path, name: 'Untitled.qnt', content: DEFAULT_CODE, isDirty: false }]);
+-        setActiveTabPath(path);
+-        setOutput('');
+-        setEditorKey(k => k + 1);
+-    };
+-
+-    // ── Save File ──────────────────────────────────────────────────────────────
+-    const handleSaveFile = async () => {
+-        try {
+-            if (window.electronAPI) {
+-                if (currentFile) {
+-                    await window.electronAPI.saveFile(currentFile, code);
+-                    setIsDirty(false);
+-                    setOutput(`Saved: ${currentFile}`);
+-                } else {
+-                    const result = await window.electronAPI.saveFileAs(code);
+-                    if (result) {
+-                        setOpenTabs(tabs => tabs.map(t =>
+-                            t.path === activeTabPath ? { ...t, path: result.filePath, name: result.fileName, isDirty: false } : t
+-                        ));
+-                        setActiveTabPath(result.filePath);
+-                        setOutput(`Saved: ${result.filePath}`);
+-                    }
+-                }
+-            }
+-        } catch (e: any) { setOutput(`Error saving: ${e.message}`); }
+-    };
++    try {
++        if (window.electronAPI) {
++            const result = await window.electronAPI.aiGenerate(aiPrompt, apiKey);
+ 
+-    // ── AI Code Generation ─────────────────────────────────────────────────────
+-    const handleGenerateCode = async () => {
+-        if (!aiPrompt.trim()) return;
+-        if (!apiKey) {
+-            setOutput("Error: Please provide a Gemini API Key to use AI Code Generation.");
+-            return;
+-        }
++            if (result.error) {
++                setOutput(`AI Error: ${result.error}`);
++            } else if (result.code) {
+ 
+-        setIsGenerating(true);
+-        setOutput("Generating code with Gemini...");
++                // Save key for future use if successful
++                localStorage.setItem('quanta_gemini_key', apiKey);
+ 
+-        try {
+-            if (window.electronAPI) {
+-                const result = await window.electronAPI.aiGenerate(aiPrompt, apiKey);
+-
+-                if (result.error) {
+-                    setOutput(`AI Error: ${result.error}`);
+-                } else if (result.code) {
+-
+-                    // Save key for future use if successful
+-                    localStorage.setItem('quanta_gemini_key', apiKey);
+-
+-                    // Insert at current cursor position or replace everything if empty
+-                    const editor = monaco?.editor.getModels()[0];
+-                    if (editor) {
+-                        const currentText = editor.getValue();
+-                        if (currentText === DEFAULT_CODE || currentText.trim() === '') {
+-                            setCode(result.code);
+-                        } else {
+-                            // Insert at the bottom for now if we can't get cursor position
+-                            setCode(currentText + '\n\n' + result.code);
+-                        }
+-                    } else {
++                // Insert at current cursor position or replace everything if empty
++                const editor = editorRef.current;
++                if (editor) {
++                    const currentText = editor.getValue();
++                    if (currentText === DEFAULT_CODE || currentText.trim() === '') {
+                         setCode(result.code);
++                    } else {
++                        // Insert at the bottom for now if we can't get cursor position
++                        setCode(currentText + '\n\n' + result.code);
+                     }
+-
+-                    setIsDirty(true);
+-                    setOutput("AI Code Generation Complete!");
+-                    setShowAiModal(false);
+-                    setAiPrompt('');
++                } else {
++                    setCode(result.code);
+                 }
+-            } else {
+-                setOutput("Error: AI Generation requires the desktop app.");
+-            }
+-        } catch (e: any) {
+-            setOutput(`Fatal AI Error: ${e.message}`);
+-        } finally {
+-            setIsGenerating(false);
+-        }
+-    };
+ 
+-    // ── Run ────────────────────────────────────────────────────────────────────
+-    const handleRun = async () => {
+-        if (!window.electronAPI) {
+-            setOutput('Compiler requires the desktop app.');
+-            return;
+-        }
+-        let targetFile = currentFile;
+-        if (!targetFile) {
+-            const result = await window.electronAPI.saveFileAs(code);
+-            if (result) { targetFile = result.filePath; setCurrentFile(result.filePath); setFileName(result.fileName); setIsDirty(false); }
+-            else { setOutput('Save the file first to run.'); return; }
++                setIsDirty(true);
++                setOutput("AI Code Generation Complete!");
++                setShowAiModal(false);
++                setAiPrompt('');
++            }
+         } else {
+-            await window.electronAPI.saveFile(targetFile, code);
+-            setIsDirty(false);
++            setOutput("Error: AI Generation requires the desktop app.");
+         }
+-        setIsCompiling(true);
+-        setOutput('');
+-        try {
+-            const result = await window.electronAPI.executeCompiler(targetFile!);
+-            // Always combine stdout + stderr so nothing is lost
+-            const combined = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
+-            if (result.error) {
+-                // Show whatever output the compiler produced, fall back to the error message
+-                setOutput(combined || result.error);
+-            } else {
+-                setOutput(combined || 'Done (no output).');
+-            }
+-        } catch (e: any) { setOutput(`Fatal error: ${e.message}`); }
+-        finally { setIsCompiling(false); }
+-    };
+-
+-    // ── Run Test Cases (Practice Mode) ─────────────────────────────────────────
+-    const handleRunTestCases = async () => {
+-        if (!practiceProblem) return;
+-        setActiveBottomTab('testcases');
+-        setIsVerifying(true);
+-        setHasPassedAll(false);
+-
+-        // Grab existing pending cases or recreate if empty
+-        const mockTests = testCaseResults.length > 0 ? testCaseResults : [
+-            { id: 1, input: 'nums = [2,7,11,15], target = 9', expected: '[0,1]', status: 'pending', actual: '' },
+-            { id: 2, input: 'nums = [3,2,4], target = 6', expected: '[1,2]', status: 'pending', actual: '' },
+-            { id: 3, input: 'nums = [3,3], target = 6', expected: '[0,1]', status: 'pending', actual: '' },
+-        ];
+-        // Set to pending state initially
+-        setTestCaseResults(mockTests.map(tc => ({ ...tc, status: 'pending', actual: '' })));
+-
+-        let targetFile = currentFile;
+-        if (!targetFile) {
+-            const result = await window.electronAPI.saveFileAs(code);
+-            if (result) { targetFile = result.filePath; setCurrentFile(result.filePath); setFileName(result.fileName); setIsDirty(false); }
+-            else { setIsVerifying(false); return; }
++    } catch (e: any) {
++        setOutput(`Fatal AI Error: ${e.message}`);
++    } finally {
++        setIsGenerating(false);
++    }
++};
++
++// ── Run ────────────────────────────────────────────────────────────────────
++const handleRun = useCallback(async () => {
++    if (!window.electronAPI) {
++        setOutput('Compiler requires the desktop app.');
++        return;
++    }
++    let targetFile = currentFile;
++    if (!targetFile) {
++        const result = await window.electronAPI.saveFileAs(code);
++        if (result) { targetFile = result.filePath; setCurrentFile(result.filePath); setFileName(result.fileName); setIsDirty(false); }
++        else { setOutput('Save the file first to run.'); return; }
++    } else {
++        await window.electronAPI.saveFile(targetFile, code);
++        setIsDirty(false);
++    }
++    setIsCompiling(true);
++    setOutput('');
++    try {
++        const result = await window.electronAPI.executeCompiler(targetFile!);
++        // Always combine stdout + stderr so nothing is lost
++        const combined = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
++        if (result.error) {
++            // Show whatever output the compiler produced, fall back to the error message
++            setOutput(combined || result.error);
+         } else {
+-            await window.electronAPI.saveFile(targetFile, code);
+-            setIsDirty(false);
++            setOutput(combined || 'Done (no output).');
+         }
+-
+-        try {
+-            const result = await window.electronAPI.executeCompiler(targetFile!);
+-            const didPass = !result.error && !result.stderr;
+-            const actualOutput = result.error || result.stderr || result.stdout || 'Program completed perfectly.';
+-
+-            // Delay purely for realistic verification UX
+-            setTimeout(() => {
+-                const finalResults = mockTests.map((tc, idx) => ({
+-                    ...tc,
+-                    status: didPass ? 'passed' : 'failed',
+-                    actual: didPass ? tc.expected : (idx === 0 ? actualOutput : 'Evaluation aborted due to prior syntax failure.')
+-                }));
+-                setTestCaseResults(finalResults);
+-                setHasPassedAll(didPass);
+-                setIsVerifying(false);
+-            }, 800);
+-        } catch (e: any) {
++    } catch (e: any) { setOutput(`Fatal error: ${e.message}`); }
++    finally { setIsCompiling(false); }
++}, [code, currentFile]);
++
++// ── Run Test Cases (Practice Mode) ─────────────────────────────────────────
++const handleRunTestCases = async () => {
++    if (!practiceProblem) return;
++    setActiveBottomTab('testcases');
++    setIsVerifying(true);
++    setHasPassedAll(false);
++
++    // Grab existing pending cases or recreate if empty
++    const mockTests = testCaseResults.length > 0 ? testCaseResults : [
++        { id: 1, input: 'nums = [2,7,11,15], target = 9', expected: '[0,1]', status: 'pending', actual: '' },
++        { id: 2, input: 'nums = [3,2,4], target = 6', expected: '[1,2]', status: 'pending', actual: '' },
++        { id: 3, input: 'nums = [3,3], target = 6', expected: '[0,1]', status: 'pending', actual: '' },
++    ];
++    // Set to pending state initially
++    setTestCaseResults(mockTests.map(tc => ({ ...tc, status: 'pending', actual: '' })));
++
++    let targetFile = currentFile;
++    if (!targetFile) {
++        const result = await window.electronAPI.saveFileAs(code);
++        if (result) { targetFile = result.filePath; setCurrentFile(result.filePath); setFileName(result.fileName); setIsDirty(false); }
++        else { setIsVerifying(false); return; }
++    } else {
++        await window.electronAPI.saveFile(targetFile, code);
++        setIsDirty(false);
++    }
++
++    try {
++        const result = await window.electronAPI.executeCompiler(targetFile!);
++        const didPass = !result.error && !result.stderr;
++        const actualOutput = result.error || result.stderr || result.stdout || 'Program completed perfectly.';
++
++        // Delay purely for realistic verification UX
++        setTimeout(() => {
++            const finalResults = mockTests.map((tc, idx) => ({
++                ...tc,
++                status: didPass ? 'passed' : 'failed',
++                actual: didPass ? tc.expected : (idx === 0 ? actualOutput : 'Evaluation aborted due to prior syntax failure.')
++            }));
++            setTestCaseResults(finalResults);
++            setHasPassedAll(didPass);
+             setIsVerifying(false);
++        }, 800);
++    } catch (e: any) {
++        setIsVerifying(false);
++    }
++};
++
++// ── AI Inline Suggest (Copilot-style via Monaco) ────────────────────────────
++const LEETCODE_TO_QUANTA_TYPE: Record<string, string> = {
++    // Integer types
++    'integer': 'int', 'int': 'int', 'long': 'int', 'long long': 'int',
++    'short': 'int', 'byte': 'int', 'number': 'int',
++    // Float types
++    'double': 'float', 'float': 'float',
++    // String types
++    'String': 'string', 'string': 'string', 'character': 'string', 'char': 'string',
++    // Boolean types
++    'boolean': 'bool', 'bool': 'bool',
++    // Void
++    'void': 'void', 'null': 'void',
++    // Array/List types → Quanta uses `int[]` syntax
++    'integer[]': 'int[]', 'int[]': 'int[]', 'long[]': 'int[]',
++    'string[]': 'string[]', 'String[]': 'string[]',
++    'boolean[]': 'bool[]', 'double[]': 'float[]', 'float[]': 'float[]',
++    'char[]': 'string[]', 'character[]': 'string[]',
++    // Complex / nested types → int[] is the closest Quanta equivalent
++    'List[Integer]': 'int[]', 'List[String]': 'string[]',
++    'List[List[Integer]]': 'int[]', 'List[List[String]]': 'string[]',
++    'List[Boolean]': 'bool[]', 'List[Double]': 'float[]',
++    // Tree / Linked List nodes
++    'TreeNode': 'int[]', 'ListNode': 'int[]', 'Node': 'int[]',
++};
++
++const getLeetcodeReturnType = (problem: any): string => {
++    try {
++        if (!problem?.metaData) return 'int';
++        const meta = JSON.parse(problem.metaData);
++        const rawType = meta?.return?.type || '';
++        return LEETCODE_TO_QUANTA_TYPE[rawType] || 'int';
++    } catch { return 'int'; }
++};
++
++const handleAiSuggest = async () => {
++    if (!editorRef.current || !window.electronAPI) {
++        setOutput('AI Suggest requires the Desktop App.');
++        return;
++    }
++    const storedKey = localStorage.getItem('quanta_gemini_key') || apiKey;
++    if (!storedKey) {
++        setOutput('Error: Configure your Gemini API Key first using the Generate button.');
++        return;
++    }
++    setIsAiSuggestLoading(true);
++    const currentCode = editorRef.current.getValue();
++    const problemCtx = practiceProblem
++        ? `You are helping solve this LeetCode problem in the Quanta language: "${practiceProblem.title}" (${practiceProblem.difficulty}).\n`
++        : '';
++    const prompt = `${problemCtx}Here is the current Quanta code:\n\`\`\`\n${currentCode}\n\`\`\`\nSuggest the next 5-15 lines to make progress on this solution. Return ONLY raw Quanta code with NO explanations, markdown, or comment blocks. Continue from exactly where the code left off.`;
++    try {
++        const result = await window.electronAPI.aiGenerate(prompt, storedKey);
++        if (result.error) {
++            setOutput(`AI Suggest Error: ${result.error}`);
++        } else if (result.code) {
++            // Store suggestion and trigger Monaco ghost text
++            pendingSuggestionRef.current = '\n' + result.code;
++            editorRef.current.trigger('', 'editor.action.inlineSuggest.trigger', {});
++            setOutput('💡 AI suggestion ready! Press Tab to accept, Esc to dismiss.');
++        }
++    } catch (e: any) {
++        setOutput(`AI Suggest Fatal Error: ${e.message}`);
++    } finally {
++        setIsAiSuggestLoading(false);
++    }
++};
++
++
++useEffect(() => {
++    const k = (e: KeyboardEvent) => {
++        // Cmd/Ctrl + S to save
++        if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); handleSaveFile(); }
++        // F5 or Cmd+5 / Ctrl+5 to run code
++        if (e.key === 'F5' || ((e.ctrlKey || e.metaKey) && e.key === '5')) {
++            e.preventDefault();
++            handleRun();
++        }
++        // Cmd+B / Ctrl+B to toggle sidebar
++        if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
++            e.preventDefault();
++            setSidebarVisible(v => !v);
+         }
+     };
+-
+-    // ── AI Inline Suggest (Copilot-style via Monaco) ────────────────────────────
+-    const LEETCODE_TO_QUANTA_TYPE: Record<string, string> = {
+-        // Integer types
+-        'integer': 'int', 'int': 'int', 'long': 'int', 'long long': 'int',
+-        'short': 'int', 'byte': 'int', 'number': 'int',
+-        // Float types
+-        'double': 'float', 'float': 'float',
+-        // String types
+-        'String': 'string', 'string': 'string', 'character': 'string', 'char': 'string',
+-        // Boolean types
+-        'boolean': 'bool', 'bool': 'bool',
+-        // Void
+-        'void': 'void', 'null': 'void',
+-        // Array/List types → Quanta uses `int[]` syntax
+-        'integer[]': 'int[]', 'int[]': 'int[]', 'long[]': 'int[]',
+-        'string[]': 'string[]', 'String[]': 'string[]',
+-        'boolean[]': 'bool[]', 'double[]': 'float[]', 'float[]': 'float[]',
+-        'char[]': 'string[]', 'character[]': 'string[]',
+-        // Complex / nested types → int[] is the closest Quanta equivalent
+-        'List[Integer]': 'int[]', 'List[String]': 'string[]',
+-        'List[List[Integer]]': 'int[]', 'List[List[String]]': 'string[]',
+-        'List[Boolean]': 'bool[]', 'List[Double]': 'float[]',
+-        // Tree / Linked List nodes
+-        'TreeNode': 'int[]', 'ListNode': 'int[]', 'Node': 'int[]',
++    window.addEventListener('keydown', k);
++    return () => window.removeEventListener('keydown', k);
++}, [handleSaveFile, handleRun]);
++
++// ── Resizer ────────────────────────────────────────────────────────────────
++useEffect(() => {
++    const handleMouseMove = (e: MouseEvent) => {
++        if (!isDragging.current) return;
++        const newHeight = window.innerHeight - e.clientY - 22; // 22 is status bar height
++        if (newHeight > 50 && newHeight < window.innerHeight - 150) {
++            setTerminalHeight(newHeight);
++        }
+     };
++    const handleMouseUp = () => { isDragging.current = false; document.body.style.cursor = 'default'; };
+ 
+-    const getLeetcodeReturnType = (problem: any): string => {
+-        try {
+-            if (!problem?.metaData) return 'int';
+-            const meta = JSON.parse(problem.metaData);
+-            const rawType = meta?.return?.type || '';
+-            return LEETCODE_TO_QUANTA_TYPE[rawType] || 'int';
+-        } catch { return 'int'; }
++    window.addEventListener('mousemove', handleMouseMove);
++    window.addEventListener('mouseup', handleMouseUp);
++    return () => {
++        window.removeEventListener('mousemove', handleMouseMove);
++        window.removeEventListener('mouseup', handleMouseUp);
+     };
++}, []);
+ 
+-    const handleAiSuggest = async () => {
+-        if (!editorRef.current || !window.electronAPI) {
+-            setOutput('AI Suggest requires the Desktop App.');
+-            return;
+-        }
+-        const storedKey = localStorage.getItem('quanta_gemini_key') || apiKey;
+-        if (!storedKey) {
+-            setOutput('Error: Configure your Gemini API Key first using the Generate button.');
+-            return;
+-        }
+-        setIsAiSuggestLoading(true);
+-        const currentCode = editorRef.current.getValue();
+-        const problemCtx = practiceProblem
+-            ? `You are helping solve this LeetCode problem in the Quanta language: "${practiceProblem.title}" (${practiceProblem.difficulty}).\n`
+-            : '';
+-        const prompt = `${problemCtx}Here is the current Quanta code:\n\`\`\`\n${currentCode}\n\`\`\`\nSuggest the next 5-15 lines to make progress on this solution. Return ONLY raw Quanta code with NO explanations, markdown, or comment blocks. Continue from exactly where the code left off.`;
+-        try {
+-            const result = await window.electronAPI.aiGenerate(prompt, storedKey);
+-            if (result.error) {
+-                setOutput(`AI Suggest Error: ${result.error}`);
+-            } else if (result.code) {
+-                // Store suggestion and trigger Monaco ghost text
+-                pendingSuggestionRef.current = '\n' + result.code;
+-                editorRef.current.trigger('', 'editor.action.inlineSuggest.trigger', {});
+-                setOutput('💡 AI suggestion ready! Press Tab to accept, Esc to dismiss.');
+-            }
+-        } catch (e: any) {
+-            setOutput(`AI Suggest Fatal Error: ${e.message}`);
+-        } finally {
+-            setIsAiSuggestLoading(false);
+-        }
+-    };
++const isError = output.startsWith('Error') || output.startsWith('Fatal');
+ 
++// ── Practice Mode (LeetCode) ───────────────────────────────────────────────
++const handleFetchPractice = async (overrideSearch?: string) => {
++    const raw = overrideSearch ?? practiceSearch;
++    if (!raw.trim()) return;
+ 
+-    useEffect(() => {
+-        const k = (e: KeyboardEvent) => {
+-            if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); handleSaveFile(); }
+-            // F5 or Cmd+5 / Ctrl+5 to run code
+-            if (e.key === 'F5' || ((e.ctrlKey || e.metaKey) && e.key === '5')) {
+-                e.preventDefault();
+-                handleRun();
+-            }
+-            // Cmd+B / Ctrl+B to toggle sidebar
+-            if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+-                e.preventDefault();
+-                setSidebarVisible(v => !v);
+-            }
+-        };
+-        window.addEventListener('keydown', k);
+-        return () => window.removeEventListener('keydown', k);
+-    }, [currentFile, code]);
++    // Auto-format the user's input into a valid LeetCode slug
++    // E.g., "1. Two Sum" -> "two-sum", "Merge k Sorted Lists" -> "merge-k-sorted-lists"
++    const formattedSlug = raw
++        .toLowerCase()
++        .replace(/^[0-9]+\.\s*/, '') // Remove leading numbers like "1. "
++        .trim()
++        .replace(/[^a-z0-9]+/g, '-'); // Replace spaces and special chars with hyphens
+ 
+-    // ── Resizer ────────────────────────────────────────────────────────────────
+-    useEffect(() => {
+-        const handleMouseMove = (e: MouseEvent) => {
+-            if (!isDragging.current) return;
+-            const newHeight = window.innerHeight - e.clientY - 22; // 22 is status bar height
+-            if (newHeight > 50 && newHeight < window.innerHeight - 150) {
+-                setTerminalHeight(newHeight);
+-            }
+-        };
+-        const handleMouseUp = () => { isDragging.current = false; document.body.style.cursor = 'default'; };
+-
+-        window.addEventListener('mousemove', handleMouseMove);
+-        window.addEventListener('mouseup', handleMouseUp);
+-        return () => {
+-            window.removeEventListener('mousemove', handleMouseMove);
+-            window.removeEventListener('mouseup', handleMouseUp);
+-        };
+-    }, []);
+-
+-    const isError = output.startsWith('Error') || output.startsWith('Fatal');
+-
+-    // ── Practice Mode (LeetCode) ───────────────────────────────────────────────
+-    const handleFetchPractice = async (overrideSearch?: string) => {
+-        const raw = overrideSearch ?? practiceSearch;
+-        if (!raw.trim()) return;
+-
+-        // Auto-format the user's input into a valid LeetCode slug
+-        // E.g., "1. Two Sum" -> "two-sum", "Merge k Sorted Lists" -> "merge-k-sorted-lists"
+-        const formattedSlug = raw
+-            .toLowerCase()
+-            .replace(/^[0-9]+\.\s*/, '') // Remove leading numbers like "1. "
+-            .trim()
+-            .replace(/[^a-z0-9]+/g, '-'); // Replace spaces and special chars with hyphens
+-
+-        setIsFetchingProblem(true);
+-        setOutput(`Fetching LeetCode problem: ${formattedSlug}...`);
++    setIsFetchingProblem(true);
++    setOutput(`Fetching LeetCode problem: ${formattedSlug}...`);
+ 
+-        try {
+-            if (window.electronAPI) {
+-                const result = await window.electronAPI.fetchLeetcode(formattedSlug);
+-                if (result.error) {
+-                    setOutput(`Error: ${result.error}`);
+-                    setPracticeProblem(null);
+-                } else if (result.data) {
+-                    setPracticeProblem(result.data);
+-                    setOutput(`Loaded: ${result.data.title}`);
+-                    // Start the practice timer
+-                    setPracticeStartTime(Date.now());
+-                    setPracticeElapsedTime(0);
+-
+-                    // Pre-populate Test Cases tab with pending cases
+-                    // Parse expected outputs from HTML content
+-                    const rawTests = result.data.exampleTestcases ? result.data.exampleTestcases.split('\n') : [];
+-                    // Parse outputs from the HTML content
+-                    // LeetCode HTML: <strong>Output:</strong> 3  (plain text follows strong close tag)
+-                    const outMatches: any[] = Array.from(
+-                        result.data.content?.matchAll(/Output:<\/strong>\s*(?:<[^>]*>)?([^<\n]+)/gi) ?? []
+-                    );
+-                    const getExt = (i: number): string => {
+-                        const m = outMatches[i];
+-                        return m ? String(m[1]).trim().replace(/&quot;/g, '"').replace(/&amp;/g, '&') : '?';
+-                    };
+-                    // Build 3 test cases with real inputs from exampleTestcases
+-                    const initialTests = [
+-                        { id: 0, input: rawTests[0] ?? '', expected: getExt(0), status: 'unrun', actual: '' },
+-                        { id: 1, input: rawTests[1] ?? '', expected: getExt(1), status: 'unrun', actual: '' },
+-                        { id: 2, input: rawTests[2] ?? '', expected: getExt(2), status: 'unrun', actual: '' },
+-                    ].filter(tc => tc.input !== '');
+-                    setTestCaseResults(initialTests.length > 0 ? initialTests : [
+-                        { id: 0, input: 'See problem description', expected: '?', status: 'unrun', actual: '' }
+-                    ]);
+-                    setActiveTcTab(0);
+-                    setHasPassedAll(false);
+-                    setTerminalHeight(280);
+-
+-                    // Pre-fill editor with a starter function using correct Quanta return type
+-                    const fnName = result.data.titleSlug.replace(/-([a-z])/g, (_: string, g: string) => g.toUpperCase());
+-                    const returnType = getLeetcodeReturnType(result.data);
+-                    setCode(`@ Practice: ${result.data.title}\n@ Difficulty: ${result.data.difficulty}\n\n${returnType} ${fnName}() {\n    @ Write your solution here\n    \n}`);
+-                    setShowSuggestions(false);
+-                }
+-            } else {
+-                setOutput("Error: Practice Mode requires the Desktop App. LeetCode blocks standard web browsers (CORS).");
++    try {
++        if (window.electronAPI) {
++            const result = await window.electronAPI.fetchLeetcode(formattedSlug);
++            if (result.error) {
++                setOutput(`Error: ${result.error}`);
+                 setPracticeProblem(null);
++            } else if (result.data) {
++                setPracticeProblem(result.data);
++                setOutput(`Loaded: ${result.data.title}`);
++                // Start the practice timer
++                setPracticeStartTime(Date.now());
++                setPracticeElapsedTime(0);
++
++                // Pre-populate Test Cases tab with pending cases
++                // Parse expected outputs from HTML content
++                const rawTests = result.data.exampleTestcases ? result.data.exampleTestcases.split('\n') : [];
++                // Parse outputs from the HTML content
++                // LeetCode HTML: <strong>Output:</strong> 3  (plain text follows strong close tag)
++                const outMatches: any[] = Array.from(
++                    result.data.content?.matchAll(/Output:<\/strong>\s*(?:<[^>]*>)?([^<\n]+)/gi) ?? []
++                );
++                const getExt = (i: number): string => {
++                    const m = outMatches[i];
++                    return m ? String(m[1]).trim().replace(/&quot;/g, '"').replace(/&amp;/g, '&') : '?';
++                };
++                // Build 3 test cases with real inputs from exampleTestcases
++                const initialTests = [
++                    { id: 0, input: rawTests[0] ?? '', expected: getExt(0), status: 'unrun', actual: '' },
++                    { id: 1, input: rawTests[1] ?? '', expected: getExt(1), status: 'unrun', actual: '' },
++                    { id: 2, input: rawTests[2] ?? '', expected: getExt(2), status: 'unrun', actual: '' },
++                ].filter(tc => tc.input !== '');
++                setTestCaseResults(initialTests.length > 0 ? initialTests : [
++                    { id: 0, input: 'See problem description', expected: '?', status: 'unrun', actual: '' }
++                ]);
++                setActiveTcTab(0);
++                setHasPassedAll(false);
++                setTerminalHeight(280);
++
++                // Pre-fill editor with a starter function using correct Quanta return type
++                const fnName = result.data.titleSlug.replace(/-([a-z])/g, (_: string, g: string) => g.toUpperCase());
++                const returnType = getLeetcodeReturnType(result.data);
++                setCode(`@ Practice: ${result.data.title}\n@ Difficulty: ${result.data.difficulty}\n\n${returnType} ${fnName}() {\n    @ Write your solution here\n    \n}`);
++                setShowSuggestions(false);
+             }
+-        } catch (e: any) {
+-            setOutput(`Failed to fetch: ${e.message}`);
+-        } finally {
+-            setIsFetchingProblem(false);
++        } else {
++            setOutput("Error: Practice Mode requires the Desktop App. LeetCode blocks standard web browsers (CORS).");
++            setPracticeProblem(null);
+         }
+-    };
+-
+-    return (
+-        <div className="app">
+-
+-            {/* ── Title Bar ── */}
+-            <div className="titlebar drag-region">
+-                <div className="titlebar-left no-drag">
+-                    <span className="logo-dot" />
+-                    <span className="logo-name">Quanta Studio</span>
+-                </div>
+-                <div className="titlebar-center no-drag" style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+-                    <div style={{ background: '#2d2d2d', border: '1px solid #3c3c3c', borderRadius: 4, width: 350, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, padding: '4px 8px', color: '#ccc', cursor: 'text' }}>
+-                        Quanta Studio
+-                    </div>
++    } catch (e: any) {
++        setOutput(`Failed to fetch: ${e.message}`);
++    } finally {
++        setIsFetchingProblem(false);
++    }
++};
++
++return (
++    <div className="app">
++
++        {/* ── Title Bar ── */}
++        <div className="titlebar drag-region">
++            <div className="titlebar-left no-drag">
++                <span className="logo-dot" />
++                <span className="logo-name">Quanta Studio</span>
++            </div>
++            <div className="titlebar-center no-drag" style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
++                <div style={{ background: '#2d2d2d', border: '1px solid #3c3c3c', borderRadius: 4, width: 350, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, padding: '4px 8px', color: '#ccc', cursor: 'text' }}>
++                    Quanta Studio
+                 </div>
+-                <div className="titlebar-right no-drag" style={{ display: 'flex', gap: 10, marginRight: 10 }}>
+-                    <div className="vs-activity-icon" onClick={handleSaveFile} style={{ width: 30, height: 30 }} title="Save">
+-                        <IconSave />
+-                    </div>
++            </div>
++            <div className="titlebar-right no-drag" style={{ display: 'flex', gap: 10, marginRight: 10 }}>
++                <div className="vs-activity-icon" onClick={handleSaveFile} style={{ width: 30, height: 30 }} title="Save">
++                    <IconSave />
+                 </div>
+             </div>
++        </div>
+ 
+-            {/* ── Content ── */}
+-            <div className={`content vs-layout-root ${isPracticeMode ? 'practice-mode-active' : ''}`}>
++        {/* ── Content ── */}
++        <div className={`content vs-layout-root ${isPracticeMode ? 'practice-mode-active' : ''}`}>
+ 
+-                {/* Activity Bar */}
+-                <div className="vs-activity-bar no-drag">
+-                    <div className="vs-activity-actions">
+-                        <div
+-                            className={`vs-activity-icon ${!isPracticeMode && sidebarVisible ? 'active' : ''}`}
+-                            onClick={() => { setIsPracticeMode(false); setSidebarVisible(v => !v); }}
+-                            title="Explorer (Ctrl+B)"
+-                        >
+-                            <IconFile />
+-                        </div>
+-                        <div className="vs-activity-icon" onClick={handleOpenFolder} title="Open Folder">
+-                            <IconFolder />
+-                        </div>
+-                        <div className="vs-activity-icon" onClick={handleNewFile} title="New File">
+-                            <IconNewFile />
+-                        </div>
+-                        <div className={`vs-activity-icon ${isPracticeMode ? 'active' : ''}`} onClick={() => setIsPracticeMode(!isPracticeMode)} title="Practice Mode">
+-                            <IconTarget />
+-                        </div>
+-                        <div className="vs-activity-icon" onClick={() => setShowAiModal(true)} title="Generate Code">
+-                            <IconSparkles />
+-                        </div>
+-                        <div className="vs-activity-icon" onClick={handleRun} title="Run Code" style={{ color: isCompiling ? '#89d185' : undefined }}>
+-                            <IconPlay />
+-                        </div>
++            {/* Activity Bar */}
++            <div className="vs-activity-bar no-drag">
++                <div className="vs-activity-actions">
++                    <div
++                        className={`vs-activity-icon ${!isPracticeMode && sidebarVisible ? 'active' : ''}`}
++                        onClick={() => { setIsPracticeMode(false); setSidebarVisible(v => !v); }}
++                        title="Explorer (Ctrl+B)"
++                    >
++                        <IconFile />
+                     </div>
+-                    <div className="vs-activity-actions">
+-                        <div className="vs-activity-icon" onClick={() => setShowHelp(true)} title="Help">
+-                            <IconHelp />
+-                        </div>
++                    <div className="vs-activity-icon" onClick={handleOpenFolder} title="Open Folder">
++                        <IconFolder />
++                    </div>
++                    <div className="vs-activity-icon" onClick={handleNewFile} title="New File">
++                        <IconNewFile />
++                    </div>
++                    <div className={`vs-activity-icon ${isPracticeMode ? 'active' : ''}`} onClick={() => setIsPracticeMode(!isPracticeMode)} title="Practice Mode">
++                        <IconTarget />
++                    </div>
++                    <div className="vs-activity-icon" onClick={() => setShowAiModal(true)} title="Generate Code">
++                        <IconSparkles />
++                    </div>
++                    <div className="vs-activity-icon" onClick={handleRun} title="Run Code" style={{ color: isCompiling ? '#89d185' : undefined }}>
++                        <IconPlay />
+                     </div>
+                 </div>
++                <div className="vs-activity-actions">
++                    <div className="vs-activity-icon" onClick={() => setShowHelp(true)} title="Help">
++                        <IconHelp />
++                    </div>
++                </div>
++            </div>
+ 
+-                {!isPracticeMode && sidebarVisible && (
+-                    <Sidebar
+-                        projectRoot={projectRoot}
+-                        tree={projectTree}
+-                        onOpenFile={handleOpenFileFromSidebar}
+-                        onOpenFolder={handleOpenFolder}
+-                    />
+-                )}
+-
+-                {/* Practice Left Pane (LeetCode Problem) */}
+-                {isPracticeMode && (
+-                    <div className="practice-left-pane">
+-                        <div className="practice-search-bar" style={{ position: 'relative' }}>
+-                            <div style={{ flex: 1, position: 'relative' }}>
+-                                <input
+-                                    type="text"
+-                                    className="practice-input"
+-                                    value={practiceSearch}
+-                                    onChange={e => { setPracticeSearch(e.target.value); setShowSuggestions(true); }}
+-                                    placeholder="Search by number or name (e.g. 1. Two Sum)"
+-                                    onKeyDown={e => {
+-                                        if (e.key === 'Enter') { setShowSuggestions(false); handleFetchPractice(); }
+-                                        if (e.key === 'Escape') setShowSuggestions(false);
+-                                    }}
+-                                    onFocus={() => setShowSuggestions(true)}
+-                                    onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+-                                    style={{ width: '100%' }}
+-                                />
+-                                {showSuggestions && practiceSearch.trim().length > 0 && (() => {
+-                                    const q = practiceSearch.toLowerCase();
+-                                    const filtered = POPULAR_PROBLEMS.filter(p =>
+-                                        p.toLowerCase().includes(q)
+-                                    ).slice(0, 8);
+-                                    return filtered.length > 0 ? (
+-                                        <div className="practice-suggestions">
+-                                            {filtered.map((p, i) => (
+-                                                <div
+-                                                    key={i}
+-                                                    className="practice-suggestion-item"
+-                                                    onMouseDown={() => {
+-                                                        setPracticeSearch(p);
+-                                                        setShowSuggestions(false);
+-                                                        handleFetchPractice(p);
+-                                                    }}
+-                                                >
+-                                                    {p}
+-                                                </div>
+-                                            ))}
+-                                        </div>
+-                                    ) : null;
+-                                })()}
+-                            </div>
+-                            <button className="btn btn-load" onClick={() => { setShowSuggestions(false); handleFetchPractice(); }} disabled={isFetchingProblem}>
+-                                {isFetchingProblem ? '⏳' : 'Load'}
+-                            </button>
+-                        </div>
++            {!isPracticeMode && sidebarVisible && (
++                <Sidebar
++                    projectRoot={projectRoot}
++                    tree={projectTree}
++                    onOpenFile={handleOpenFileFromSidebar}
++                    onOpenFolder={handleOpenFolder}
++                />
++            )}
+ 
+-                        <div className="practice-problem-container">
+-                            {practiceProblem ? (
+-                                <div className="practice-problem-content">
+-                                    <div className="practice-header">
+-                                        <div>
+-                                            <h2>{practiceProblem.title}</h2>
+-                                            <span className={`diff-badge diff-${practiceProblem.difficulty?.toLowerCase()}`}>
+-                                                {practiceProblem.difficulty}
+-                                            </span>
+-                                        </div>
+-                                        {practiceStartTime && (
+-                                            <div className="practice-timer" title="Practice Time Elapsed">
+-                                                <span style={{ color: 'var(--green)' }}>✓ Active</span>
+-                                                <span style={{ fontFamily: 'monospace', fontWeight: 'bold' }}>
+-                                                    {Math.floor(practiceElapsedTime / 60).toString().padStart(2, '0')}:{(practiceElapsedTime % 60).toString().padStart(2, '0')}
+-                                                </span>
++            {/* Practice Left Pane (LeetCode Problem) */}
++            {isPracticeMode && (
++                <div className="practice-left-pane">
++                    <div className="practice-search-bar" style={{ position: 'relative' }}>
++                        <div style={{ flex: 1, position: 'relative' }}>
++                            <input
++                                type="text"
++                                className="practice-input"
++                                value={practiceSearch}
++                                onChange={e => { setPracticeSearch(e.target.value); setShowSuggestions(true); }}
++                                placeholder="Search by number or name (e.g. 1. Two Sum)"
++                                onKeyDown={e => {
++                                    if (e.key === 'Enter') { setShowSuggestions(false); handleFetchPractice(); }
++                                    if (e.key === 'Escape') setShowSuggestions(false);
++                                }}
++                                onFocus={() => setShowSuggestions(true)}
++                                onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
++                                style={{ width: '100%' }}
++                            />
++                            {showSuggestions && practiceSearch.trim().length > 0 && (() => {
++                                const q = practiceSearch.toLowerCase();
++                                const filtered = POPULAR_PROBLEMS.filter(p =>
++                                    p.toLowerCase().includes(q)
++                                ).slice(0, 8);
++                                return filtered.length > 0 ? (
++                                    <div className="practice-suggestions">
++                                        {filtered.map((p, i) => (
++                                            <div
++                                                key={i}
++                                                className="practice-suggestion-item"
++                                                onMouseDown={() => {
++                                                    setPracticeSearch(p);
++                                                    setShowSuggestions(false);
++                                                    handleFetchPractice(p);
++                                                }}
++                                            >
++                                                {p}
+                                             </div>
+-                                        )}
++                                        ))}
+                                     </div>
+-                                    <div
+-                                        className="practice-html"
+-                                        dangerouslySetInnerHTML={{ __html: practiceProblem.content }}
+-                                    />
+-                                </div>
+-                            ) : (
+-                                <div className="practice-empty">
+-                                    <IconTarget />
+-                                    <p>Load a problem to begin.</p>
+-                                </div>
+-                            )}
++                                ) : null;
++                            })()}
+                         </div>
++                        <button className="btn btn-load" onClick={() => { setShowSuggestions(false); handleFetchPractice(); }} disabled={isFetchingProblem}>
++                            {isFetchingProblem ? '⏳' : 'Load'}
++                        </button>
+                     </div>
+-                )}
+ 
+-                {/* Main Right Pane (Editor & Terminal) */}
+-                <div className="main-pane">
+-                    {/* VS Code Tab Bar */}
+-                    <div className="vs-tabs-container no-drag">
+-                        {openTabs.map(tab => (
+-                            <div
+-                                key={tab.path}
+-                                className={`vs-tab ${activeTabPath === tab.path ? 'active' : ''}`}
+-                                onClick={() => setActiveTabPath(tab.path)}
+-                            >
+-                                <span className="tab-icon" style={{ marginRight: '5px', display: 'flex', alignItems: 'center' }}>
+-                                    {tab.name.endsWith('.qnt') ? <IconQuantaFile /> : <IconFile />}
+-                                </span>
+-                                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tab.name}</span>
+-                                {tab.isDirty && <span className="vs-tab-dirty" title="Unsaved changes" />}
+-                                <div className="vs-tab-close" onClick={(e) => closeTab(tab.path, e)}>✕</div>
++                    <div className="practice-problem-container">
++                        {practiceProblem ? (
++                            <div className="practice-problem-content">
++                                <div className="practice-header">
++                                    <div>
++                                        <h2>{practiceProblem.title}</h2>
++                                        <span className={`diff-badge diff-${practiceProblem.difficulty?.toLowerCase()}`}>
++                                            {practiceProblem.difficulty}
++                                        </span>
++                                    </div>
++                                    {practiceStartTime && (
++                                        <div className="practice-timer" title="Practice Time Elapsed">
++                                            <span style={{ color: 'var(--green)' }}>✓ Active</span>
++                                            <span style={{ fontFamily: 'monospace', fontWeight: 'bold' }}>
++                                                {Math.floor(practiceElapsedTime / 60).toString().padStart(2, '0')}:{(practiceElapsedTime % 60).toString().padStart(2, '0')}
++                                            </span>
++                                        </div>
++                                    )}
++                                </div>
++                                <div
++                                    className="practice-html"
++                                    dangerouslySetInnerHTML={{ __html: practiceProblem.content }}
++                                />
++                            </div>
++                        ) : (
++                            <div className="practice-empty">
++                                <IconTarget />
++                                <p>Load a problem to begin.</p>
+                             </div>
+-                        ))}
++                        )}
+                     </div>
++                </div>
++            )}
+ 
+-                    {/* Editor */}
+-                    <div className="editor-pane">
++            {/* Main Right Pane (Editor & Terminal) */}
++            <div className="main-pane">
++                {/* VS Code Tab Bar */}
++                <div className="vs-tabs-container no-drag">
++                    {openTabs.map(tab => (
++                        <div
++                            key={tab.path}
++                            className={`vs-tab ${activeTabPath === tab.path ? 'active' : ''}`}
++                            onClick={() => setActiveTabPath(tab.path)}
++                        >
++                            <span className="tab-icon" style={{ marginRight: '5px', display: 'flex', alignItems: 'center' }}>
++                                {tab.name.endsWith('.qnt') ? <IconQuantaFile /> : <IconFile />}
++                            </span>
++                            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tab.name}</span>
++                            {tab.isDirty && <span className="vs-tab-dirty" title="Unsaved changes" />}
++                            <div className="vs-tab-close" onClick={(e) => closeTab(tab.path, e)}>✕</div>
++                        </div>
++                    ))}
++                </div>
++
++                {/* Editor or Welcome Screen */}
++                <div className="editor-pane">
++                    {openTabs.length === 0 ? (
++                        <Welcome
++                            onNewFile={() => handleNewFile()}
++                            onOpenFolder={openFolder}
++                            recentItems={recentItems}
++                            onOpenRecent={(item) => {
++                                if (item.type === 'folder') {
++                                    setProjectRoot(item.path);
++                                    fetchFileTree(item.path);
++                                } else {
++                                    // future: handle file open
++                                }
++                            }}
++                        />
++                    ) : (
+                         <Editor
+                             key={editorKey}
+                             height="100%"
+@@ -960,11 +996,18 @@ export default function App() {
+                                 inlineSuggest: { enabled: true },
+                                 snippetSuggestions: 'top',
+                             }}
+-                            onMount={(editor, monaco) => {
++                            onMount={(editor, monacoInstance) => {
+                                 editorRef.current = editor;
++                                monaco.current = monacoInstance; // Store monaco instance in ref
+                                 editor.updateOptions({ inlineSuggest: { enabled: true } });
++
++                                // Bind Save command (Cmd/Ctrl + S)
++                                editor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyS, () => {
++                                    handleSaveFile();
++                                });
++
+                                 // Register inline completion provider so Tab accepts AI suggestions
+-                                monaco.languages.registerInlineCompletionsProvider('quanta', {
++                                monacoInstance.languages.registerInlineCompletionsProvider('quanta', {
+                                     provideInlineCompletions: async () => {
+                                         if (!pendingSuggestionRef.current) return { items: [] };
+                                         const text = pendingSuggestionRef.current;
+@@ -979,312 +1022,313 @@ export default function App() {
+                                 });
+                             }}
+                         />
+-                    </div>
+-
+-                    {/* Floating AI Suggest Button (visible only in Practice Mode) */}
+-                    {isPracticeMode && (
+-                        <button
+-                            className={`ai-suggest-fab${isAiSuggestLoading ? ' loading' : ''}`}
+-                            onClick={handleAiSuggest}
+-                            disabled={isAiSuggestLoading}
+-                            title="AI Suggest next lines (Tab to accept)"
+-                        >
+-                            {isAiSuggestLoading ? '⏳' : '✨'}
+-                        </button>
+                     )}
++                </div>
+ 
+-                    {/* Resizer */}
+-                    <div
+-                        className="resizer"
+-                        onMouseDown={() => { isDragging.current = true; document.body.style.cursor = 'row-resize'; }}
+-                    />
+-
+-                    {/* Terminal */}
+-                    <div className="terminal-panel" style={{ height: terminalHeight, minHeight: terminalHeight }}>
+-                        <div className="terminal-header">
+-                            <div className="terminal-tabs">
++                {/* Floating AI Suggest Button (visible only in Practice Mode) */}
++                {isPracticeMode && openTabs.length > 0 && (
++                    <button
++                        className={`ai-suggest-fab${isAiSuggestLoading ? ' loading' : ''}`}
++                        onClick={handleAiSuggest}
++                        disabled={isAiSuggestLoading}
++                        title="AI Suggest next lines (Tab to accept)"
++                    >
++                        {isAiSuggestLoading ? '⏳' : '✨'}
++                    </button>
++                )}
++
++                {/* Resizer */}
++                <div
++                    className="resizer"
++                    onMouseDown={() => { isDragging.current = true; document.body.style.cursor = 'row-resize'; }}
++                />
++
++                {/* Terminal */}
++                <div className="terminal-panel" style={{ height: terminalHeight, minHeight: terminalHeight }}>
++                    <div className="terminal-header">
++                        <div className="terminal-tabs">
++                            <button
++                                className={`term-tab ${activeBottomTab === 'terminal' ? 'active' : ''}`}
++                                onClick={() => setActiveBottomTab('terminal')}
++                            >
++                                <span className={`term-dot${isCompiling ? ' compiling' : ''}`} />
++                                TERMINAL
++                            </button>
++                            {isPracticeMode && practiceProblem && (
+                                 <button
+-                                    className={`term-tab ${activeBottomTab === 'terminal' ? 'active' : ''}`}
+-                                    onClick={() => setActiveBottomTab('terminal')}
++                                    className={`term-tab ${activeBottomTab === 'testcases' ? 'active' : ''}`}
++                                    onClick={() => setActiveBottomTab('testcases')}
+                                 >
+-                                    <span className={`term-dot${isCompiling ? ' compiling' : ''}`} />
+-                                    TERMINAL
++                                    TEST CASES
+                                 </button>
+-                                {isPracticeMode && practiceProblem && (
+-                                    <button
+-                                        className={`term-tab ${activeBottomTab === 'testcases' ? 'active' : ''}`}
+-                                        onClick={() => setActiveBottomTab('testcases')}
+-                                    >
+-                                        TEST CASES
++                            )}
++                        </div>
++                        <div className="terminal-actions">
++                            {isPracticeMode && practiceProblem && (
++                                <>
++                                    <button className="btn btn-ghost" onClick={handleRunTestCases} disabled={isCompiling || isVerifying} style={{ color: 'var(--blue)' }}>
++                                        {isVerifying ? '⏳ Verifying...' : '▶ Run Test Cases'}
+                                     </button>
+-                                )}
+-                            </div>
+-                            <div className="terminal-actions">
+-                                {isPracticeMode && practiceProblem && (
+-                                    <>
+-                                        <button className="btn btn-ghost" onClick={handleRunTestCases} disabled={isCompiling || isVerifying} style={{ color: 'var(--blue)' }}>
+-                                            {isVerifying ? '⏳ Verifying...' : '▶ Run Test Cases'}
++                                    {hasPassedAll && (
++                                        <button className="btn btn-run submit-btn" onClick={() => alert('Code Submitted to LeetCode!')}>
++                                            Submit
+                                         </button>
+-                                        {hasPassedAll && (
+-                                            <button className="btn btn-run submit-btn" onClick={() => alert('Code Submitted to LeetCode!')}>
+-                                                Submit
+-                                            </button>
+-                                        )}
+-                                    </>
+-                                )}
+-                                <button className="terminal-clear" onClick={() => setOutput('')}>✕ Clear</button>
+-                            </div>
++                                    )}
++                                </>
++                            )}
++                            <button className="terminal-clear" onClick={() => setOutput('')}>✕ Clear</button>
+                         </div>
+-                        <div className="terminal-body">
+-                            {activeBottomTab === 'terminal' ? (
+-                                output ? (
+-                                    <>
+-                                        <span className="term-prompt">$ quanta </span>
+-                                        <span className="term-fname">{fileName}</span>
+-                                        {'\n\n'}
+-                                        <span className={isError ? 'term-error' : 'term-out'}>{output}</span>
+-                                    </>
+-                                ) : (
+-                                    <span className="term-empty">Press ▶ Run Code to execute your program…</span>
+-                                )
++                    </div>
++                    <div className="terminal-body">
++                        {activeBottomTab === 'terminal' ? (
++                            output ? (
++                                <>
++                                    <span className="term-prompt">$ quanta </span>
++                                    <span className="term-fname">{fileName}</span>
++                                    {'\n\n'}
++                                    <span className={isError ? 'term-error' : 'term-out'}>{output}</span>
++                                </>
+                             ) : (
+-                                <div className="test-cases-panel">
+-                                    {testCaseResults.length === 0 ? (
+-                                        <div className="test-case-empty">
+-                                            Press "Run Test Cases" to verify your code against LeetCode examples.
+-                                        </div>
+-                                    ) : (() => {
+-                                        const tc = testCaseResults[activeTcTab] || testCaseResults[0];
+-                                        return (
+-                                            <>
+-                                                {/* LeetCode-style Case selector tabs */}
+-                                                <div className="tc-selector-tabs">
+-                                                    {testCaseResults.map((t, i) => (
+-                                                        <button
+-                                                            key={i}
+-                                                            className={`tc-selector-tab ${activeTcTab === i ? 'active' : ''} ${t.status}`}
+-                                                            onClick={() => setActiveTcTab(i)}
+-                                                        >
+-                                                            {t.status === 'passed' ? '✓ ' : t.status === 'failed' ? '✕ ' : ''}
+-                                                            Case {i + 1}
+-                                                        </button>
+-                                                    ))}
++                                <span className="term-empty">Press ▶ Run Code to execute your program…</span>
++                            )
++                        ) : (
++                            <div className="test-cases-panel">
++                                {testCaseResults.length === 0 ? (
++                                    <div className="test-case-empty">
++                                        Press "Run Test Cases" to verify your code against LeetCode examples.
++                                    </div>
++                                ) : (() => {
++                                    const tc = testCaseResults[activeTcTab] || testCaseResults[0];
++                                    return (
++                                        <>
++                                            {/* LeetCode-style Case selector tabs */}
++                                            <div className="tc-selector-tabs">
++                                                {testCaseResults.map((t, i) => (
++                                                    <button
++                                                        key={i}
++                                                        className={`tc-selector-tab ${activeTcTab === i ? 'active' : ''} ${t.status}`}
++                                                        onClick={() => setActiveTcTab(i)}
++                                                    >
++                                                        {t.status === 'passed' ? '✓ ' : t.status === 'failed' ? '✕ ' : ''}
++                                                        Case {i + 1}
++                                                    </button>
++                                                ))}
++                                            </div>
++                                            {/* Case detail */}
++                                            <div className="tc-detail">
++                                                <div className="tc-section">
++                                                    <span className="tc-label">Input</span>
++                                                    <div className="tc-value"><code>{tc.input || <em style={{ color: 'var(--text-3)' }}>No input data</em>}</code></div>
++                                                </div>
++                                                <div className="tc-section">
++                                                    <span className="tc-label">Expected Output</span>
++                                                    <div className="tc-value tc-expected"><code>{tc.expected}</code></div>
+                                                 </div>
+-                                                {/* Case detail */}
+-                                                <div className="tc-detail">
++                                                {tc.status !== 'unrun' && tc.status !== 'pending' && (
+                                                     <div className="tc-section">
+-                                                        <span className="tc-label">Input</span>
+-                                                        <div className="tc-value"><code>{tc.input || <em style={{ color: 'var(--text-3)' }}>No input data</em>}</code></div>
++                                                        <span className="tc-label">Actual Output</span>
++                                                        <div className={`tc-value ${tc.status === 'passed' ? 'tc-pass' : 'tc-fail'}`}><code>{tc.actual}</code></div>
+                                                     </div>
++                                                )}
++                                                {tc.status === 'pending' && (
+                                                     <div className="tc-section">
+-                                                        <span className="tc-label">Expected Output</span>
+-                                                        <div className="tc-value tc-expected"><code>{tc.expected}</code></div>
++                                                        <span className="tc-label" style={{ color: 'var(--accent)' }}>⏳ Running...</span>
+                                                     </div>
+-                                                    {tc.status !== 'unrun' && tc.status !== 'pending' && (
+-                                                        <div className="tc-section">
+-                                                            <span className="tc-label">Actual Output</span>
+-                                                            <div className={`tc-value ${tc.status === 'passed' ? 'tc-pass' : 'tc-fail'}`}><code>{tc.actual}</code></div>
+-                                                        </div>
+-                                                    )}
+-                                                    {tc.status === 'pending' && (
+-                                                        <div className="tc-section">
+-                                                            <span className="tc-label" style={{ color: 'var(--accent)' }}>⏳ Running...</span>
+-                                                        </div>
+-                                                    )}
+-                                                </div>
+-                                            </>
+-                                        );
+-                                    })()}
+-                                </div>
+-                            )}
+-                        </div>
++                                                )}
++                                            </div>
++                                        </>
++                                    );
++                                })()}
++                            </div>
++                        )}
+                     </div>
+                 </div>
+             </div>
++        </div>
+ 
+-            {/* ── Status Bar ── */}
+-            <div className="statusbar">
+-                <div className="statusbar-left">
+-                    <span>◆ Quanta Studio</span>
+-                    <span>⬧ Quanta</span>
+-                </div>
+-                <div className="statusbar-right">
+-                    <span>{isCompiling ? '⏳ Running…' : isDirty ? '● Unsaved' : '✓ Ready'}</span>
+-                    <span>UTF-8</span>
+-                </div>
++        {/* ── Status Bar ── */}
++        <div className="statusbar">
++            <div className="statusbar-left">
++                <span>◆ Quanta Studio</span>
++                <span>⬧ Quanta</span>
+             </div>
++            <div className="statusbar-right">
++                <span>{isCompiling ? '⏳ Running…' : isDirty ? '● Unsaved' : '✓ Ready'}</span>
++                <span>UTF-8</span>
++            </div>
++        </div>
+ 
+-            {/* ── Help Modal ── */}
+-            {showHelp && (
+-                <div className="help-overlay" onClick={() => setShowHelp(false)}>
+-                    <div className="help-modal" onClick={e => e.stopPropagation()}>
+-                        <div className="help-header">
+-                            <div>
+-                                <h2>Quanta Syntax Reference</h2>
+-                                <p className="help-subtitle">Everything you need to write Quanta code</p>
+-                            </div>
+-                            <button className="help-close" onClick={() => setShowHelp(false)}>✕</button>
++        {/* ── Help Modal ── */}
++        {showHelp && (
++            <div className="help-overlay" onClick={() => setShowHelp(false)}>
++                <div className="help-modal" onClick={e => e.stopPropagation()}>
++                    <div className="help-header">
++                        <div>
++                            <h2>Quanta Syntax Reference</h2>
++                            <p className="help-subtitle">Everything you need to write Quanta code</p>
++                        </div>
++                        <button className="help-close" onClick={() => setShowHelp(false)}>✕</button>
++                    </div>
++                    <div className="help-body">
++                        {/* ── Sidebar ── */}
++                        <div className="help-sidebar">
++                            {['Variables & Types', 'Arrays & Lists', '2D Matrix Arrays', 'Functions & Defaults', 'Control Flow', 'Loops', 'Exception Handling', 'String Methods', 'String Validation', 'Comments'].map(tab => (
++                                <button
++                                    key={tab}
++                                    className={`help-tab ${helpTab === tab ? 'active' : ''}`}
++                                    onClick={() => setHelpTab(tab)}
++                                >
++                                    {tab}
++                                </button>
++                            ))}
+                         </div>
+-                        <div className="help-body">
+-                            {/* ── Sidebar ── */}
+-                            <div className="help-sidebar">
+-                                {['Variables & Types', 'Arrays & Lists', '2D Matrix Arrays', 'Functions & Defaults', 'Control Flow', 'Loops', 'Exception Handling', 'String Methods', 'String Validation', 'Comments'].map(tab => (
+-                                    <button
+-                                        key={tab}
+-                                        className={`help-tab ${helpTab === tab ? 'active' : ''}`}
+-                                        onClick={() => setHelpTab(tab)}
+-                                    >
+-                                        {tab}
+-                                    </button>
+-                                ))}
+-                            </div>
+ 
+-                            {/* ── Content Area ── */}
+-                            <div className="help-content-area">
+-                                {helpTab === 'Variables & Types' && (
+-                                    <div className="help-section animated">
+-                                        <h3>Variables & Types</h3>
+-                                        <p>Quanta supports both dynamically and statically typed initializations.</p>
+-                                        <pre><code>@ Implicit types{'\n'}x = 100{'\n'}name = "Quanta"{'\n'}isValid = true{'\n'}{'\n'}@ Explicit types{'\n'}int age = 10{'\n'}float pi = 3.14{'\n'}string msg = "Hello"</code></pre>
+-                                    </div>
+-                                )}
++                        {/* ── Content Area ── */}
++                        <div className="help-content-area">
++                            {helpTab === 'Variables & Types' && (
++                                <div className="help-section animated">
++                                    <h3>Variables & Types</h3>
++                                    <p>Quanta supports both dynamically and statically typed initializations.</p>
++                                    <pre><code>@ Implicit types{'\n'}x = 100{'\n'}name = "Quanta"{'\n'}isValid = true{'\n'}{'\n'}@ Explicit types{'\n'}int age = 10{'\n'}float pi = 3.14{'\n'}string msg = "Hello"</code></pre>
++                                </div>
++                            )}
+ 
+-                                {helpTab === 'Arrays & Lists' && (
+-                                    <div className="help-section animated">
+-                                        <h3>Arrays & Lists</h3>
+-                                        <p>Arrays are fixed in size and live on the stack. Lists grow dynamically on the heap.</p>
+-                                        <pre><code>@ Fixed Array (Size 3){'\n'}int[3] arr = [10, 20, 30];{'\n'}arr[1] = 99;{'\n'}{'\n'}@ Dynamic List (Resizable){'\n'}int[] list = [5, 10];{'\n'}list.push(15);{'\n'}int last = list.pop();{'\n'}print(list.len());</code></pre>
+-                                    </div>
+-                                )}
++                            {helpTab === 'Arrays & Lists' && (
++                                <div className="help-section animated">
++                                    <h3>Arrays & Lists</h3>
++                                    <p>Arrays are fixed in size and live on the stack. Lists grow dynamically on the heap.</p>
++                                    <pre><code>@ Fixed Array (Size 3){'\n'}int[3] arr = [10, 20, 30];{'\n'}arr[1] = 99;{'\n'}{'\n'}@ Dynamic List (Resizable){'\n'}int[] list = [5, 10];{'\n'}list.push(15);{'\n'}int last = list.pop();{'\n'}print(list.len());</code></pre>
++                                </div>
++                            )}
+ 
+-                                {helpTab === '2D Matrix Arrays' && (
+-                                    <div className="help-section animated">
+-                                        <h3>2D Matrix Arrays</h3>
+-                                        <p>Create multi-dimensional grids for math and maps.</p>
+-                                        <pre><code>@ Static 2D Array{'\n'}int[2][3] mat = [[1, 2], [3, 4]];{'\n'}mat[0][1] = 99;{'\n'}{'\n'}@ Dynamic 2D List{'\n'}int[][] grid = [[1], [2, 3]];{'\n'}print(grid[1][0]); @ Prints 2</code></pre>
+-                                    </div>
+-                                )}
++                            {helpTab === '2D Matrix Arrays' && (
++                                <div className="help-section animated">
++                                    <h3>2D Matrix Arrays</h3>
++                                    <p>Create multi-dimensional grids for math and maps.</p>
++                                    <pre><code>@ Static 2D Array{'\n'}int[2][3] mat = [[1, 2], [3, 4]];{'\n'}mat[0][1] = 99;{'\n'}{'\n'}@ Dynamic 2D List{'\n'}int[][] grid = [[1], [2, 3]];{'\n'}print(grid[1][0]); @ Prints 2</code></pre>
++                                </div>
++                            )}
+ 
+-                                {helpTab === 'Functions & Defaults' && (
+-                                    <div className="help-section animated">
+-                                        <h3>Functions & Defaults</h3>
+-                                        <p>Declare functions with specific types and elegant default parameter fallbacks.</p>
+-                                        <pre><code>@ Standard function{'\n'}int add(a, b) {'{\n'}  return a + b;{'\n'}{'}'}{'\n\n'}@ Default arguments{'\n'}int area(w=10, h=20) {'{\n'}  return w * h;{'\n'}{'}'}</code></pre>
+-                                    </div>
+-                                )}
++                            {helpTab === 'Functions & Defaults' && (
++                                <div className="help-section animated">
++                                    <h3>Functions & Defaults</h3>
++                                    <p>Declare functions with specific types and elegant default parameter fallbacks.</p>
++                                    <pre><code>@ Standard function{'\n'}int add(a, b) {'{\n'}  return a + b;{'\n'}{'}'}{'\n\n'}@ Default arguments{'\n'}int area(w=10, h=20) {'{\n'}  return w * h;{'\n'}{'}'}</code></pre>
++                                </div>
++                            )}
+ 
+-                                {helpTab === 'Control Flow' && (
+-                                    <div className="help-section animated">
+-                                        <h3>Control Flow</h3>
+-                                        <p>Standard conditional logic for branching paths.</p>
+-                                        <pre><code>if (x &gt; 5) {'{\n'}  print("Large");{'\n'}{'} '}elif (x == 5) {'{\n'}  print("Five");{'\n'}{'} '}else {'{\n'}  print("Small");{'\n'}{'}'}</code></pre>
+-                                    </div>
+-                                )}
++                            {helpTab === 'Control Flow' && (
++                                <div className="help-section animated">
++                                    <h3>Control Flow</h3>
++                                    <p>Standard conditional logic for branching paths.</p>
++                                    <pre><code>if (x &gt; 5) {'{\n'}  print("Large");{'\n'}{'} '}elif (x == 5) {'{\n'}  print("Five");{'\n'}{'} '}else {'{\n'}  print("Small");{'\n'}{'}'}</code></pre>
++                                </div>
++                            )}
+ 
+-                                {helpTab === 'Loops' && (
+-                                    <div className="help-section animated">
+-                                        <h3>Loops</h3>
+-                                        <p>An infinite/conditional `loop` keyword replaces standard while/for.</p>
+-                                        <pre><code>int i = 0;{'\n'}loop (i &lt; 5) {'{\n'}  print(i);{'\n'}  i++;{'\n'}{'}'}</code></pre>
+-                                    </div>
+-                                )}
++                            {helpTab === 'Loops' && (
++                                <div className="help-section animated">
++                                    <h3>Loops</h3>
++                                    <p>An infinite/conditional `loop` keyword replaces standard while/for.</p>
++                                    <pre><code>int i = 0;{'\n'}loop (i &lt; 5) {'{\n'}  print(i);{'\n'}  i++;{'\n'}{'}'}</code></pre>
++                                </div>
++                            )}
+ 
+-                                {helpTab === 'String Methods' && (
+-                                    <div className="help-section animated">
+-                                        <h3>String Methods</h3>
+-                                        <p>Built-in manipulation methods that act on strings.</p>
+-                                        <pre><code>string s = " Quanta Language "{'\n'}{'\n'}s.len()        @ length{'\n'}s.upper()      @ " QUANTA ..."{'\n'}s.lower()      @ " quanta ..."{'\n'}s.strip()      @ removes spaces{'\n'}s.replace("a", "A"){'\n'}s.reverse(){'\n'}s.find("Lan")  @ returns index</code></pre>
+-                                    </div>
+-                                )}
++                            {helpTab === 'String Methods' && (
++                                <div className="help-section animated">
++                                    <h3>String Methods</h3>
++                                    <p>Built-in manipulation methods that act on strings.</p>
++                                    <pre><code>string s = " Quanta Language "{'\n'}{'\n'}s.len()        @ length{'\n'}s.upper()      @ " QUANTA ..."{'\n'}s.lower()      @ " quanta ..."{'\n'}s.strip()      @ removes spaces{'\n'}s.replace("a", "A"){'\n'}s.reverse(){'\n'}s.find("Lan")  @ returns index</code></pre>
++                                </div>
++                            )}
+ 
+-                                {helpTab === 'String Validation' && (
+-                                    <div className="help-section animated">
+-                                        <h3>String Validation</h3>
+-                                        <p>Useful boolean checks for verifying characters.</p>
+-                                        <pre><code>string val = "Hello"{'\n'}{'\n'}val.isalpha()   @ true{'\n'}val.isdigit()   @ false{'\n'}val.isspace()   @ false{'\n'}val.isalnum()   @ true{'\n'}val.startswith("He") @ true{'\n'}val.endswith("lo")   @ true</code></pre>
+-                                    </div>
+-                                )}
++                            {helpTab === 'String Validation' && (
++                                <div className="help-section animated">
++                                    <h3>String Validation</h3>
++                                    <p>Useful boolean checks for verifying characters.</p>
++                                    <pre><code>string val = "Hello"{'\n'}{'\n'}val.isalpha()   @ true{'\n'}val.isdigit()   @ false{'\n'}val.isspace()   @ false{'\n'}val.isalnum()   @ true{'\n'}val.startswith("He") @ true{'\n'}val.endswith("lo")   @ true</code></pre>
++                                </div>
++                            )}
+ 
+-                                {helpTab === 'Comments' && (
+-                                    <div className="help-section animated">
+-                                        <h3>Comments</h3>
+-                                        <p>Add notes unheeded by the compiler.</p>
+-                                        <pre><code>@ Single line comment{'\n\n'}'''{'\n'}Multi-line block comment{'\n'}for longer explanations{'\n'}'''</code></pre>
+-                                    </div>
+-                                )}
++                            {helpTab === 'Comments' && (
++                                <div className="help-section animated">
++                                    <h3>Comments</h3>
++                                    <p>Add notes unheeded by the compiler.</p>
++                                    <pre><code>@ Single line comment{'\n\n'}'''{'\n'}Multi-line block comment{'\n'}for longer explanations{'\n'}'''</code></pre>
++                                </div>
++                            )}
+ 
+-                                {helpTab === 'Exception Handling' && (
+-                                    <div className="help-section animated">
+-                                        <h3>Exception Handling</h3>
+-                                        <p>Use try/catch to handle unexpected runtime errors. Smart Guards automatically catch errors.</p>
+-                                        <pre><code>try {'{\n'}  int x = 10 / 0;{'\n'}{'} '}catch (e) {'{\n'}  print(e); @ Prints: Arithmetic Error...{'\n'}{'}'}{'\n\n'}@ Auto Guards: \n@ - Arithmetic Error\n@ - Type Error\n@ - Index Error\n@ - Reference Error\n@ - Stack Error</code></pre>
+-                                    </div>
+-                                )}
+-                            </div>
++                            {helpTab === 'Exception Handling' && (
++                                <div className="help-section animated">
++                                    <h3>Exception Handling</h3>
++                                    <p>Use try/catch to handle unexpected runtime errors. Smart Guards automatically catch errors.</p>
++                                    <pre><code>try {'{\n'}  int x = 10 / 0;{'\n'}{'} '}catch (e) {'{\n'}  print(e); @ Prints: Arithmetic Error...{'\n'}{'}'}{'\n\n'}@ Auto Guards: \n@ - Arithmetic Error\n@ - Type Error\n@ - Index Error\n@ - Reference Error\n@ - Stack Error</code></pre>
++                                </div>
++                            )}
+                         </div>
+                     </div>
+                 </div>
+-            )}
+-
+-            {/* ── AI Generation Modal ── */}
+-            {showAiModal && (
+-                <div className="help-overlay" onClick={() => !isGenerating && setShowAiModal(false)}>
+-                    <div className="ai-modal" onClick={e => e.stopPropagation()}>
+-                        <div className="help-header">
+-                            <div>
+-                                <h2>✨ Generate Quanta Code</h2>
+-                                <p className="help-subtitle">Describe what you want to build, and AI will write it.</p>
+-                            </div>
+-                            <button className="help-close" onClick={() => !isGenerating && setShowAiModal(false)}>✕</button>
++            </div>
++        )}
++
++        {/* ── AI Generation Modal ── */}
++        {showAiModal && (
++            <div className="help-overlay" onClick={() => !isGenerating && setShowAiModal(false)}>
++                <div className="ai-modal" onClick={e => e.stopPropagation()}>
++                    <div className="help-header">
++                        <div>
++                            <h2>✨ Generate Quanta Code</h2>
++                            <p className="help-subtitle">Describe what you want to build, and AI will write it.</p>
+                         </div>
+-                        <div className="ai-body">
+-                            {localStorage.getItem('quanta_gemini_key') ? (
+-                                <div className="ai-input-group" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-editor)', padding: '10px 14px', borderRadius: 'var(--radius)', border: '1px solid var(--border-lt)' }}>
+-                                    <span style={{ color: 'var(--green)', fontSize: '13px', fontWeight: 500 }}>✓ API Key Configured Securely</span>
+-                                    <button className="btn btn-ghost" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={() => { localStorage.removeItem('quanta_gemini_key'); setApiKey(''); }}>Change Key</button>
+-                                </div>
+-                            ) : (
+-                                <div className="ai-input-group">
+-                                    <label>Gemini API Key (Required Once)</label>
+-                                    <input
+-                                        type="password"
+-                                        placeholder="AIzaSy..."
+-                                        value={apiKey}
+-                                        onChange={(e) => setApiKey(e.target.value)}
+-                                        disabled={isGenerating}
+-                                    />
+-                                </div>
+-                            )}
++                        <button className="help-close" onClick={() => !isGenerating && setShowAiModal(false)}>✕</button>
++                    </div>
++                    <div className="ai-body">
++                        {localStorage.getItem('quanta_gemini_key') ? (
++                            <div className="ai-input-group" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-editor)', padding: '10px 14px', borderRadius: 'var(--radius)', border: '1px solid var(--border-lt)' }}>
++                                <span style={{ color: 'var(--green)', fontSize: '13px', fontWeight: 500 }}>✓ API Key Configured Securely</span>
++                                <button className="btn btn-ghost" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={() => { localStorage.removeItem('quanta_gemini_key'); setApiKey(''); }}>Change Key</button>
++                            </div>
++                        ) : (
+                             <div className="ai-input-group">
+-                                <label>What should I write?</label>
+-                                <textarea
+-                                    className="ai-prompt-area"
+-                                    placeholder="e.g. Write a function that calculates the factorial of a number."
+-                                    value={aiPrompt}
+-                                    onChange={(e) => setAiPrompt(e.target.value)}
++                                <label>Gemini API Key (Required Once)</label>
++                                <input
++                                    type="password"
++                                    placeholder="AIzaSy..."
++                                    value={apiKey}
++                                    onChange={(e) => setApiKey(e.target.value)}
+                                     disabled={isGenerating}
+-                                    rows={4}
+-                                    onKeyDown={(e) => {
+-                                        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') handleGenerateCode();
+-                                    }}
+                                 />
+-                                <span className="ai-hint">Pro Tip: Press Ctrl+Enter to generate</span>
+                             </div>
+-                        </div>
+-                        <div className="ai-footer">
+-                            <button className="btn btn-ghost" onClick={() => setShowAiModal(false)} disabled={isGenerating}>Cancel</button>
+-                            <button
+-                                className={`btn btn-run ${isGenerating ? 'running' : ''}`}
+-                                onClick={handleGenerateCode}
+-                                disabled={isGenerating || !aiPrompt.trim()}
+-                            >
+-                                <IconSparkles /> {isGenerating ? 'Generating...' : 'Generate Code'}
+-                            </button>
++                        )}
++                        <div className="ai-input-group">
++                            <label>What should I write?</label>
++                            <textarea
++                                className="ai-prompt-area"
++                                placeholder="e.g. Write a function that calculates the factorial of a number."
++                                value={aiPrompt}
++                                onChange={(e) => setAiPrompt(e.target.value)}
++                                disabled={isGenerating}
++                                rows={4}
++                                onKeyDown={(e) => {
++                                    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') handleGenerateCode();
++                                }}
++                            />
++                            <span className="ai-hint">Pro Tip: Press Ctrl+Enter to generate</span>
+                         </div>
+                     </div>
++                    <div className="ai-footer">
++                        <button className="btn btn-ghost" onClick={() => setShowAiModal(false)} disabled={isGenerating}>Cancel</button>
++                        <button
++                            className={`btn btn-run ${isGenerating ? 'running' : ''}`}
++                            onClick={handleGenerateCode}
++                            disabled={isGenerating || !aiPrompt.trim()}
++                        >
++                            <IconSparkles /> {isGenerating ? 'Generating...' : 'Generate Code'}
++                        </button>
++                    </div>
+                 </div>
+-            )}
++            </div>
++        )}
+ 
+-        </div>
+-    );
++    </div>
++);
+ }

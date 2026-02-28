@@ -25,5 +25,8 @@ interface Window {
         executeCompiler: (filePath: string) => Promise<{ error: string | null, stdout: string, stderr: string }>;
         aiGenerate: (prompt: string, apiKey: string) => Promise<{ error?: string, code?: string }>;
         fetchLeetcode: (titleSlug: string) => Promise<{ error?: string, data?: any }>;
+        terminalInput: (data: string) => void;
+        resizeTerminal: (cols: number, rows: number) => void;
+        onTerminalData: (callback: (data: string) => void) => void;
     }
 }

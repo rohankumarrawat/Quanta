@@ -60,12 +60,13 @@ enum TokenType {
     TOK_FALSE = -15, 
     TOK_EQ = -16,
 
-    TOK_INC = -17, 
-    TOK_DEC = -18, 
+    TOK_INC = -17,
+    TOK_DEC = -18,
     TOK_ELIF = -19,
     TOK_VAR = -20,
 
-    TOK_LOOP = -21,
+    TOK_WHILE = -21,
+    TOK_FOR = -70,
     TOK_NEQ = -22,  // !=
     TOK_GEQ = -23,  // >=
     TOK_LEQ = -24,  // <=
@@ -277,26 +278,26 @@ public:
     llvm::Value *codegen() override;
 };
 
-class LoopAST : public ASTNode {
+class WhileAST : public ASTNode {
     std::unique_ptr<ASTNode> Cond;
     std::unique_ptr<ASTNode> Body;
 
 public:
-    LoopAST(std::unique_ptr<ASTNode> cond, std::unique_ptr<ASTNode> body)
+    WhileAST(std::unique_ptr<ASTNode> cond, std::unique_ptr<ASTNode> body)
         : Cond(std::move(cond)), Body(std::move(body)) {}
 
     llvm::Value *codegen() override;
 };
 
-// loop i in string { body } -- i is index (int), stack-only
-class LoopOverStringAST : public ASTNode {
+// for i in iterable { body } -- i is index (int), stack-only
+class ForIterableAST : public ASTNode {
     std::string VarName;
-    std::unique_ptr<ASTNode> StringExpr;
+    std::unique_ptr<ASTNode> IterableExpr;
     std::unique_ptr<ASTNode> Body;
 
 public:
-    LoopOverStringAST(std::string varName, std::unique_ptr<ASTNode> stringExpr, std::unique_ptr<ASTNode> body)
-        : VarName(std::move(varName)), StringExpr(std::move(stringExpr)), Body(std::move(body)) {}
+    ForIterableAST(std::string varName, std::unique_ptr<ASTNode> iterableExpr, std::unique_ptr<ASTNode> body)
+        : VarName(std::move(varName)), IterableExpr(std::move(iterableExpr)), Body(std::move(body)) {}
 
     llvm::Value *codegen() override;
 };
