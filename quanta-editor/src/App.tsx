@@ -1317,6 +1317,9 @@ export default function App() {
                             <div className="terminal-actions">
                                 {isPracticeMode && practiceProblem && (
                                     <>
+                                        <button className="btn btn-ghost" onClick={handleResetPracticeCode} title="Reset code to default template" style={{ marginRight: '8px' }}>
+                                            ↺ Reset
+                                        </button>
                                         <button className="btn btn-ghost" onClick={handleRunTestCases} disabled={isCompiling || isVerifying} style={{ color: 'var(--blue)' }}>
                                             {isVerifying ? '⏳ Verifying...' : '▶ Run Test Cases'}
                                         </button>
