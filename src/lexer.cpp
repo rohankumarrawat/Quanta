@@ -168,6 +168,8 @@ std::vector<Token> tokenize(std::string source) {
             else if (idStr == "try") type = TOK_TRY;
             else if (idStr == "catch") type = TOK_CATCH;
             else if (idStr == "in") type = TOK_IN;
+            else if (idStr == "and") type = TOK_AND;
+            else if (idStr == "or") type = TOK_OR;
             
             
             // --- DETECT "int" and "intN" ---

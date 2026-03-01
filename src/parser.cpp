@@ -578,6 +578,12 @@ bool isFunctionDefinition() {
     if (!hasType) return false; 
     advance(); // Eat type
 
+    // 1b. Skip optional [] suffix for array return types (e.g. int[] fnName)
+    if (getTok().value == "[") {
+        advance(); // eat '['
+        if (getTok().value == "]") advance(); // eat ']'
+    }
+
     // 2. Check for Name
     if (getTok().type != TOK_IDENTIFIER) {
         currentToken = savePos; 
@@ -598,9 +604,17 @@ std::unique_ptr<FunctionAST> parseFunction() {
     std::string returnType = "void"; 
     if (getTok().type == TOK_INT || getTok().type == TOK_INT8 || 
         getTok().type == TOK_FLOAT || getTok().type == TOK_STRING || 
-        getTok().type == TOK_VOID) {
+        getTok().type == TOK_BOOL || getTok().type == TOK_VOID) {
         returnType = getTok().value;
         advance(); 
+        // Check for array suffix: int[], string[], bool[], float[]
+        if (getTok().value == "[") {
+            advance(); // consume '['
+            if (getTok().value == "]") {
+                advance(); // consume ']'
+                returnType += "[]"; // e.g. "int[]", "string[]"
+            }
+        }
     }
 
     // 2. Parse Function Name
@@ -937,6 +951,19 @@ std::unique_ptr<ASTNode> parseVarDecl() {
         }
     }
 
+    // If the type is string and dimensions are set:
+    // - string[N] with an array literal init → FixedArrayDeclAST (array of N string pointers)
+    // - string[N] with a string literal init  → FixedStringDeclAST (fixed char buffer, old behavior)
+    // If the type is string and dimensions are set:
+    // - string[N] with an array literal init → FixedArrayDeclAST (array of N string pointers)
+    // - string[N] with a string literal init  → FixedStringDeclAST (fixed char buffer, old behavior)
+    if (isFixedString) {
+        if (dynamic_cast<ArrayExprAST*>(init.get())) {
+            isFixedArray = true;
+            isFixedString = false;
+        }
+    }
+
     if (isFixedString) {
         return std::make_unique<FixedStringDeclAST>(name, capacity, std::move(init));
     }
@@ -1229,9 +1256,9 @@ ProgramAST parse(const std::vector<Token>& tokens) {
             std::cerr << "Error: Cannot mix top-level script code with an explicit 'main' function." << std::endl;
             HasError = true;
         } else {
-            // Auto-generate: void main() { ... scriptBody ... }
+            // Auto-generate: int main() { ... scriptBody ... }
             program.functions.push_back(std::make_unique<FunctionAST>(
-                "void", 
+                "int", 
                 "main", 
                 std::vector<FuncArg>(),  // <--- CHANGED THIS
                 std::move(scriptBody)
@@ -1241,7 +1268,7 @@ ProgramAST parse(const std::vector<Token>& tokens) {
     // 3. Handle Empty File (prevent linker error)
     else if (!hasExplicitMain) {
          program.functions.push_back(std::make_unique<FunctionAST>(
-            "void", "main", 
+            "int", "main", 
             std::vector<FuncArg>(),      // <--- CHANGED THIS
             std::vector<std::unique_ptr<ASTNode>>()
         ));

@@ -75,6 +75,12 @@ const IconTarget = () => (
     </svg>
 );
 
+const IconSettings = () => (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M10.478 1.647a.5.5 0 1 0-.956-.294l-.4 1.294a5.001 5.001 0 0 0-2.244 0l-.4-1.294a.5.5 0 0 0-.956.294l.354 1.15a4.986 4.986 0 0 0-1.748 1.008l-1.127-.58a.5.5 0 0 0-.458.89l1.041.536c-.464.71-.8 1.558-.952 2.47l-1.294.4a.5.5 0 1 0 .294.956l1.294-.4a5.004 5.004 0 0 0 0 2.244l-1.294.4a.5.5 0 0 0 .294.956l1.15-.354a4.986 4.986 0 0 0 1.008 1.748l-.58 1.127a.5.5 0 0 0 .89.458l.536-1.041c.71.464 1.558.8 2.47.952l.4 1.294a.5.5 0 1 0 .956-.294l-.4-1.294a5.001 5.001 0 0 0 2.244 0l.4 1.294a.5.5 0 0 0 .956-.294l-.354-1.15a4.986 4.986 0 0 0 1.748-1.008l1.127.58a.5.5 0 0 0 .458-.89l-1.041-.536c.464-.71.8-1.558.952-2.47l1.294-.4a.5.5 0 1 0-.294-.956l-1.294.4a5.004 5.004 0 0 0 0-2.244l1.294-.4a.5.5 0 0 0-.294-.956l-1.15.354a4.986 4.986 0 0 0-1.008-1.748l.58-1.127a.5.5 0 0 0-.89-.458l-.536 1.041a4.992 4.992 0 0 0-2.47-.952l-.4-1.294zM8 4.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7zMw" />
+    </svg>
+);
+
 const DEFAULT_CODE = `print("Welcome to Quanta")`;
 
 // ─── App ──────────────────────────────────────────────────────────────────────
@@ -194,8 +200,13 @@ export default function App() {
     // AI Generation State
     const [showAiModal, setShowAiModal] = useState<boolean>(false);
     const [aiPrompt, setAiPrompt] = useState<string>('');
-    const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem('quanta_gemini_key') || '');
     const [isGenerating, setIsGenerating] = useState<boolean>(false);
+
+    // Auth & Settings State
+    const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
+    const [apiKey, setApiKey] = useState<string>(localStorage.getItem('quanta_gemini_key') || '');
+    const [leetcodeSession, setLeetcodeSession] = useState<string>(localStorage.getItem('leetcode_session') || '');
+    const [csrfToken, setCsrfToken] = useState<string>(localStorage.getItem('leetcode_csrf') || '');
 
     // Practice Mode State
     const [isPracticeMode, setIsPracticeMode] = useState<boolean>(false);
@@ -204,14 +215,29 @@ export default function App() {
     const [isFetchingProblem, setIsFetchingProblem] = useState<boolean>(false);
     const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
 
+    // Autosave & Restore State
+    const [defaultTemplate, setDefaultTemplate] = useState<string>('');
+
     // Practice Mode: New Features State
     const [practiceStartTime, setPracticeStartTime] = useState<number | null>(null);
     const [practiceElapsedTime, setPracticeElapsedTime] = useState<number>(0);
+    const [isTimerPaused, setIsTimerPaused] = useState<boolean>(false);
     const [activeBottomTab, setActiveBottomTab] = useState<'terminal' | 'testcases'>('terminal');
     const [testCaseResults, setTestCaseResults] = useState<any[]>([]);
     const [hasPassedAll, setHasPassedAll] = useState<boolean>(false);
     const [isVerifying, setIsVerifying] = useState<boolean>(false);
     const [activeTcTab, setActiveTcTab] = useState<number>(0);
+
+    // LeetCode Auto-Submit State
+    const [showTranslationModal, setShowTranslationModal] = useState<boolean>(false);
+    const [targetLanguage, setTargetLanguage] = useState<string>('python3');
+    const [translatedCode, setTranslatedCode] = useState<string>('');
+    const [isTranslating, setIsTranslating] = useState<boolean>(false);
+    const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+    const [submissionStatus, setSubmissionStatus] = useState<string>('');
+    const [submissionResult, setSubmissionResult] = useState<any>(null);
+    const [showResultsPanel, setShowResultsPanel] = useState<boolean>(false);
+    const [quantaCodeSnapshot, setQuantaCodeSnapshot] = useState<string>('');
 
     // Popular LeetCode problems for autocomplete
     const POPULAR_PROBLEMS = [
@@ -432,6 +458,25 @@ export default function App() {
         });
     }, [monaco]);
 
+    // ── Auto-Save Practice Code ───────────────────────────────────────────────
+    useEffect(() => {
+        if (isPracticeMode && practiceProblem?.titleSlug && code !== defaultTemplate) {
+            const saveKey = `quanta_leetcode_${practiceProblem.titleSlug}`;
+            localStorage.setItem(saveKey, code);
+        }
+    }, [code, practiceProblem, isPracticeMode, defaultTemplate]);
+
+    // ── Reset Practice Code to Default ────────────────────────────────────────
+    const handleResetPracticeCode = () => {
+        if (practiceProblem?.titleSlug) {
+            if (confirm('Are you sure you want to reset your code to the default template? This will erase your current solution.')) {
+                const saveKey = `quanta_leetcode_${practiceProblem.titleSlug}`;
+                localStorage.removeItem(saveKey);
+                setCode(defaultTemplate);
+            }
+        }
+    };
+
     const handleEditorChange = (value: string | undefined) => {
         if (value !== undefined) { setCode(value); setIsDirty(true); }
     };
@@ -490,13 +535,13 @@ export default function App() {
     // ── Practice Mode Timer ──────────────────────────────────────────────────
     useEffect(() => {
         let interval: NodeJS.Timeout;
-        if (practiceProblem && practiceStartTime) {
+        if (practiceProblem && practiceStartTime && !isTimerPaused) {
             interval = setInterval(() => {
                 setPracticeElapsedTime(Math.floor((Date.now() - practiceStartTime) / 1000));
             }, 1000);
         }
         return () => clearInterval(interval);
-    }, [practiceProblem, practiceStartTime]);
+    }, [practiceProblem, practiceStartTime, isTimerPaused]);
 
     // ── New File ───────────────────────────────────────────────────────────────
     const handleNewFile = () => {
@@ -805,6 +850,7 @@ export default function App() {
                     // Start the practice timer
                     setPracticeStartTime(Date.now());
                     setPracticeElapsedTime(0);
+                    setIsTimerPaused(false);
 
                     // Pre-populate Test Cases tab with pending cases
                     // Parse expected outputs from HTML content
@@ -834,7 +880,42 @@ export default function App() {
                     // Pre-fill editor with a starter function using correct Quanta return type
                     const fnName = result.data.titleSlug.replace(/-([a-z])/g, (_: string, g: string) => g.toUpperCase());
                     const returnType = getLeetcodeReturnType(result.data);
-                    setCode(`@ Practice: ${result.data.title}\n@ Difficulty: ${result.data.difficulty}\n\n${returnType} ${fnName}() {\n    @ Write your solution here\n    \n}`);
+
+                    // Parse parameters from LeetCode metaData and map to Quanta types
+                    const lcTypeToQuanta: Record<string, string> = {
+                        'integer': 'int', 'int': 'int', 'long': 'int', 'long long': 'int',
+                        'double': 'float', 'float': 'float',
+                        'boolean': 'bool', 'bool': 'bool',
+                        'string': 'string', 'character': 'string',
+                        'integer[]': 'int[]', 'int[]': 'int[]',
+                        'string[]': 'string[]',
+                        'list<integer>': 'int[]', 'list<string>': 'string[]',
+                    };
+                    let paramStr = '';
+                    try {
+                        const meta = JSON.parse(result.data.metaData || '{}');
+                        if (meta.params && meta.params.length > 0) {
+                            paramStr = meta.params.map((p: { name: string; type: string }) => {
+                                const qType = lcTypeToQuanta[p.type?.toLowerCase()] || p.type || 'auto';
+                                return `${qType} ${p.name}`;
+                            }).join(', ');
+                        }
+                    } catch (_) { }
+
+                    const templateCode = `@ Practice: ${result.data.title}\n@ Difficulty: ${result.data.difficulty}\n\n${returnType} ${fnName}(${paramStr}) {\n    @ Write your solution here\n    \n}`;
+                    setDefaultTemplate(templateCode);
+
+                    // Attempt to restore saved draft from localStorage
+                    const saveKey = `quanta_leetcode_${formattedSlug}`;
+                    const savedDraft = localStorage.getItem(saveKey);
+
+                    if (savedDraft) {
+                        setCode(savedDraft);
+                        if (terminalRef.current) terminalRef.current.write(`Restored your saved code draft for this problem.\r\n`);
+                    } else {
+                        setCode(templateCode);
+                    }
+
                     setShowSuggestions(false);
                 }
             } else {
@@ -846,6 +927,110 @@ export default function App() {
             setPracticeProblem(null);
         } finally {
             setIsFetchingProblem(false);
+        }
+    };
+
+    const handleTranslateAndSubmit = async () => {
+        if (!practiceProblem) return;
+        setIsTranslating(true);
+        setSubmissionStatus('');
+        setSubmissionResult(null);
+        setQuantaCodeSnapshot(code); // Save Quanta code before translation
+        setSubmissionStatus(`Translating Quanta to ${targetLanguage}...`);
+        try {
+            // Extract the LeetCode expected function name from problem metadata
+            let leetcodeFnName = '';
+            try {
+                const meta = JSON.parse(practiceProblem.metaData || '{}');
+                console.log('--- LEETCODE METADATA ---', meta);
+                leetcodeFnName = meta.name || '';
+            } catch (_) { }
+
+            const translateRes = await window.electronAPI.aiTranslate(code, targetLanguage, apiKey, leetcodeFnName);
+            if (translateRes.error || !translateRes.code) {
+                setSubmissionStatus('Translation Error: ' + translateRes.error);
+                setIsTranslating(false);
+                return;
+            }
+            const translated = translateRes.code;
+            setTranslatedCode(translated);
+            setIsTranslating(false);
+
+            setSubmissionStatus('Submitting to LeetCode API...');
+            setIsSubmitting(true);
+
+            const submitResponse = await window.electronAPI.submitLeetcode(
+                practiceProblem.titleSlug,
+                practiceProblem.questionId,
+                targetLanguage,
+                translated,
+                leetcodeSession,
+                csrfToken
+            );
+
+            if (submitResponse.error) {
+                setSubmissionStatus('Submit Error: ' + submitResponse.error);
+                setIsSubmitting(false);
+                return;
+            }
+
+            const submissionId = submitResponse.data.submission_id;
+            if (!submissionId) {
+                setSubmissionStatus('Submit Failed: No submission_id returned.');
+                setIsSubmitting(false);
+                return;
+            }
+
+            let attempt = 0;
+            const poll = setInterval(async () => {
+                attempt++;
+                setSubmissionStatus(`Evaluating on LeetCode servers... (attempt ${attempt})`);
+
+                const checkRes = await window.electronAPI.checkSubmission(submissionId, leetcodeSession, csrfToken);
+                if (checkRes.error) {
+                    setSubmissionStatus('Status Error: ' + checkRes.error);
+                    clearInterval(poll);
+                    setIsSubmitting(false);
+                    return;
+                }
+
+                const state = checkRes.data.state;
+                if (state === 'SUCCESS') {
+                    clearInterval(poll);
+                    setIsSubmitting(false);
+                    const statusDisplay = checkRes.data.status_msg || checkRes.data.status_display || 'Finished';
+                    setSubmissionResult(checkRes.data);
+                    let displayString = statusDisplay;
+                    if (statusDisplay === 'Accepted') {
+                        setIsTimerPaused(true);
+                        displayString = `✅ Accepted! Runtime: ${checkRes.data.status_runtime} · Memory: ${checkRes.data.status_memory}`;
+
+                        // Auto-push to GitHub
+                        if (window.electronAPI && practiceProblem && quantaCodeSnapshot) {
+                            window.electronAPI.pushToGithub(practiceProblem.titleSlug, quantaCodeSnapshot)
+                                .then(res => {
+                                    if (terminalRef.current) {
+                                        if (res.error) terminalRef.current.write(`\\r\\n[GitHub Auto-Push] Failed: ${res.error}\\r\\n`);
+                                        else terminalRef.current.write(`\\r\\n[GitHub Auto-Push] Successfully committed and pushed to main!\\r\\n`);
+                                    }
+                                })
+                                .catch(err => console.error("GitHub Push Error:", err));
+                        }
+                    } else if (statusDisplay === 'Wrong Answer') {
+                        displayString = `❌ Wrong Answer!\nExpected: ${checkRes.data.expected_output || 'N/A'}\nGot: ${checkRes.data.code_output || 'N/A'}`;
+                    } else if (statusDisplay === 'Runtime Error') {
+                        displayString = `⚠️ Runtime Error!\n${checkRes.data.runtime_error}`;
+                    } else if (statusDisplay === 'Compile Error') {
+                        displayString = `⚠️ Compile Error!\n${checkRes.data.compile_error}`;
+                    }
+                    setSubmissionStatus(displayString);
+                }
+            }, 2500);
+
+        } catch (err: any) {
+            setSubmissionStatus('Unexpected Error: ' + err.message);
+            setIsTranslating(false);
+            setIsSubmitting(false);
         }
     };
 
@@ -892,14 +1077,14 @@ export default function App() {
                         <div className={`vs-activity-icon ${isPracticeMode ? 'active' : ''}`} onClick={() => setIsPracticeMode(!isPracticeMode)} title="Practice Mode">
                             <IconTarget />
                         </div>
-                        <div className="vs-activity-icon" onClick={() => setShowAiModal(true)} title="Generate Code">
-                            <IconSparkles />
-                        </div>
                         <div className="vs-activity-icon" onClick={handleRun} title="Run Code" style={{ color: isCompiling ? '#89d185' : undefined }}>
                             <IconPlay />
                         </div>
                     </div>
                     <div className="vs-activity-actions">
+                        <div className="vs-activity-icon" onClick={() => setShowSettingsModal(true)} title="Settings">
+                            <IconSettings />
+                        </div>
                         <div className="vs-activity-icon" onClick={() => setShowHelp(true)} title="Help">
                             <IconHelp />
                         </div>
@@ -975,10 +1160,23 @@ export default function App() {
                                         </div>
                                         {practiceStartTime && (
                                             <div className="practice-timer" title="Practice Time Elapsed">
-                                                <span style={{ color: 'var(--green)' }}>✓ Active</span>
+                                                {isTimerPaused ? (
+                                                    <span style={{ color: 'var(--text-3)' }}>⏸ Paused</span>
+                                                ) : (
+                                                    <span style={{ color: 'var(--green)' }}>✓ Active</span>
+                                                )}
                                                 <span style={{ fontFamily: 'monospace', fontWeight: 'bold' }}>
                                                     {Math.floor(practiceElapsedTime / 60).toString().padStart(2, '0')}:{(practiceElapsedTime % 60).toString().padStart(2, '0')}
                                                 </span>
+                                                {!isTimerPaused && (
+                                                    <button
+                                                        onClick={() => setIsTimerPaused(true)}
+                                                        style={{ background: 'transparent', border: 'none', color: 'var(--text-2)', cursor: 'pointer', marginLeft: '5px' }}
+                                                        title="Pause Timer"
+                                                    >
+                                                        ⏸
+                                                    </button>
+                                                )}
                                             </div>
                                         )}
                                     </div>
@@ -1123,7 +1321,7 @@ export default function App() {
                                             {isVerifying ? '⏳ Verifying...' : '▶ Run Test Cases'}
                                         </button>
                                         {hasPassedAll && (
-                                            <button className="btn btn-run submit-btn" onClick={() => alert('Code Submitted to LeetCode!')}>
+                                            <button className="btn btn-run submit-btn" onClick={() => { setShowTranslationModal(true); setSubmissionStatus(''); setTranslatedCode(''); }}>
                                                 Submit
                                             </button>
                                         )}
@@ -1133,9 +1331,15 @@ export default function App() {
                             </div>
                         </div>
                         <div className="terminal-body" style={{ padding: 0, overflow: 'hidden' }}>
-                            {activeBottomTab === 'terminal' ? (
-                                <div ref={terminalContainerRef} style={{ width: '100%', height: '100%' }} />
-                            ) : (
+                            <div
+                                ref={terminalContainerRef}
+                                style={{
+                                    width: '100%',
+                                    height: '100%',
+                                    display: activeBottomTab === 'terminal' ? 'block' : 'none'
+                                }}
+                            />
+                            {activeBottomTab === 'testcases' && (
                                 <div className="test-cases-panel">
                                     {testCaseResults.length === 0 ? (
                                         <div className="test-case-empty">
@@ -1239,9 +1443,9 @@ export default function App() {
 
                                 {helpTab === 'Arrays & Lists' && (
                                     <div className="help-section animated">
-                                        <h3>Arrays & Lists</h3>
-                                        <p>Arrays are fixed in size and live on the stack. Lists grow dynamically on the heap.</p>
-                                        <pre><code>@ Fixed Array (Size 3){'\n'}int[3] arr = [10, 20, 30];{'\n'}arr[1] = 99;{'\n'}{'\n'}@ Dynamic List (Resizable){'\n'}int[] list = [5, 10];{'\n'}list.push(15);{'\n'}int last = list.pop();{'\n'}print(list.len());</code></pre>
+                                        <h3>Arrays &amp; Lists</h3>
+                                        <p>Arrays are fixed in size and live on the stack. Lists grow dynamically on the heap. Both work with <code>int</code>, <code>float</code>, <code>bool</code>, and <code>string</code>.</p>
+                                        <pre><code>@ Fixed Array (Size 3){'\n'}int[3] arr = [10, 20, 30];{'\n'}arr[1] = 99;{'\n'}{'\n'}@ Dynamic List (Resizable){'\n'}int[] list = [5, 10];{'\n'}list.push(15);{'\n'}int last = list.pop();{'\n'}print(list.len());{'\n'}{'\n'}@ String Arrays (same syntax){'\n'}string[3] names = ["Alice", "Bob", "Charlie"];{'\n'}print(names[0]);   @ Alice{'\n'}names[1] = "Dave";{'\n'}{'\n'}string[] words = ["hi", "there"];{'\n'}words.push("!");{'\n'}print(words.len());  @ 3</code></pre>
                                     </div>
                                 )}
 
@@ -1368,6 +1572,219 @@ export default function App() {
                             >
                                 <IconSparkles /> {isGenerating ? 'Generating...' : 'Generate Code'}
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Auto-Submit Modal ── */}
+            {showTranslationModal && (
+                <div className="help-overlay" onClick={() => { if (!isTranslating && !isSubmitting) setShowTranslationModal(false); }}>
+                    <div className="ai-modal" onClick={e => e.stopPropagation()} style={{ width: 600 }}>
+                        <div className="help-header">
+                            <div>
+                                <h2>🚀 Submit to LeetCode</h2>
+                                <p className="help-subtitle">Translate your Quanta code and auto-submit.</p>
+                            </div>
+                            <button className="help-close" onClick={() => { if (!isTranslating && !isSubmitting) setShowTranslationModal(false); }}>✕</button>
+                        </div>
+                        <div className="ai-body">
+                            <div className="ai-input-group" style={{ marginBottom: 15 }}>
+                                <label>Target Language</label>
+                                <select
+                                    value={targetLanguage}
+                                    onChange={(e) => setTargetLanguage(e.target.value)}
+                                    disabled={isTranslating || isSubmitting}
+                                    style={{ padding: '8px', borderRadius: '4px', background: 'var(--bg-editor)', color: 'var(--text-1)', border: '1px solid var(--border-lt)', width: '100%', outline: 'none' }}
+                                >
+                                    <option value="python3">Python 3</option>
+                                    <option value="cpp">C++</option>
+                                    <option value="java">Java</option>
+                                    <option value="javascript">JavaScript</option>
+                                </select>
+                            </div>
+
+                            <div className="ai-input-group" style={{ marginBottom: 15 }}>
+                                <label>Translation Preview</label>
+                                <textarea
+                                    className="ai-prompt-area"
+                                    style={{ height: '200px', background: '#1e1e1e', color: '#ccc', fontFamily: 'monospace', padding: '10px' }}
+                                    readOnly
+                                    value={translatedCode || "Click 'Auto-Submit' to translate Quanta and send to LeetCode."}
+                                />
+                            </div>
+
+                            <div className="ai-input-group">
+                                <label>Submission Status</label>
+                                <div style={{ minHeight: '40px', background: 'var(--bg-editor)', padding: '10px 14px', borderRadius: '4px', border: '1px solid var(--border-lt)', color: submissionStatus.includes('✅') ? '#22c55e' : submissionStatus.includes('❌') || submissionStatus.includes('⚠️') ? '#f44336' : 'var(--blue)', whiteSpace: 'pre-wrap', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                                    <span>{submissionStatus || 'Ready'}</span>
+                                    {submissionResult && submissionResult.status_msg === 'Accepted' && (
+                                        <button
+                                            className="btn btn-run"
+                                            style={{ padding: '4px 14px', fontSize: 12, flexShrink: 0 }}
+                                            onClick={() => setShowResultsPanel(true)}
+                                        >
+                                            🏆 View Results
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="ai-footer">
+                            <button className="btn btn-ghost" onClick={() => setShowTranslationModal(false)} disabled={isTranslating || isSubmitting}>
+                                Close
+                            </button>
+                            <button
+                                className={`btn btn-run ${isTranslating || isSubmitting ? 'running' : ''}`}
+                                onClick={handleTranslateAndSubmit}
+                                disabled={isTranslating || isSubmitting}
+                                style={{ minWidth: 180 }}
+                            >
+                                {isTranslating ? 'Translating...' : isSubmitting ? 'Evaluating...' : '🔥 Auto-Submit & Evaluate'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Results Panel ── */}
+            {showResultsPanel && submissionResult && (
+                <div className="help-overlay" onClick={() => setShowResultsPanel(false)}>
+                    <div onClick={e => e.stopPropagation()} style={{
+                        background: 'var(--bg-sidebar)',
+                        border: '1px solid var(--border-lt)',
+                        borderRadius: 12,
+                        width: '88vw',
+                        maxWidth: 1100,
+                        maxHeight: '90vh',
+                        overflowY: 'auto',
+                        boxShadow: '0 24px 80px rgba(0,0,0,0.7)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                    }}>
+                        {/* Header */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 28px', borderBottom: '1px solid var(--border-lt)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                <span style={{ fontSize: 28 }}>🏆</span>
+                                <div>
+                                    <h2 style={{ margin: 0, fontSize: 20, color: '#22c55e' }}>Accepted!</h2>
+                                    <p style={{ margin: 0, fontSize: 13, color: 'var(--text-3)' }}>{practiceProblem?.title}</p>
+                                </div>
+                            </div>
+                            <button className="help-close" onClick={() => setShowResultsPanel(false)}>✕</button>
+                        </div>
+
+                        {/* Scorecard */}
+                        <div style={{ display: 'flex', gap: 16, padding: '20px 28px', borderBottom: '1px solid var(--border-lt)' }}>
+                            {[
+                                { label: 'Status', value: '✅ Accepted', color: '#22c55e' },
+                                { label: 'Runtime', value: submissionResult.status_runtime || 'N/A', color: '#60a5fa' },
+                                { label: 'Memory', value: submissionResult.status_memory || 'N/A', color: '#a78bfa' },
+                                { label: 'Language', value: targetLanguage, color: '#f59e0b' },
+                                ...(practiceElapsedTime > 0 ? [{ label: 'Time Taken', value: `${Math.floor(practiceElapsedTime / 60).toString().padStart(2, '0')}:${(practiceElapsedTime % 60).toString().padStart(2, '0')}`, color: '#34d399' }] : []),
+                            ].map(stat => (
+                                <div key={stat.label} style={{ flex: 1, background: 'var(--bg-editor)', borderRadius: 10, padding: '16px 20px', border: '1px solid var(--border-lt)', textAlign: 'center' }}>
+                                    <div style={{ fontSize: 22, fontWeight: 700, color: stat.color }}>{stat.value}</div>
+                                    <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4, textTransform: 'uppercase', letterSpacing: 1 }}>{stat.label}</div>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Code Panels */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, padding: '20px 28px' }}>
+                            {/* Quanta Source */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <span style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', borderRadius: 6, padding: '2px 10px', fontSize: 11, fontWeight: 700, color: '#fff', letterSpacing: 0.5 }}>QUANTA</span>
+                                    <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Your original code</span>
+                                </div>
+                                <pre style={{ margin: 0, background: 'var(--bg-editor)', border: '1px solid var(--border-lt)', borderRadius: 8, padding: '16px', fontSize: 13, fontFamily: 'monospace', color: '#ccc', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 380, overflowY: 'auto' }}>
+                                    {quantaCodeSnapshot || '—'}
+                                </pre>
+                            </div>
+                            {/* Translated Code */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <span style={{ background: 'linear-gradient(135deg,#0ea5e9,#06b6d4)', borderRadius: 6, padding: '2px 10px', fontSize: 11, fontWeight: 700, color: '#fff', letterSpacing: 0.5 }}>{targetLanguage.toUpperCase()}</span>
+                                    <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Submitted to LeetCode</span>
+                                </div>
+                                <pre style={{ margin: 0, background: 'var(--bg-editor)', border: '1px solid var(--border-lt)', borderRadius: 8, padding: '16px', fontSize: 13, fontFamily: 'monospace', color: '#ccc', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 380, overflowY: 'auto' }}>
+                                    {translatedCode || '—'}
+                                </pre>
+                            </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '16px 28px', borderTop: '1px solid var(--border-lt)', gap: 12 }}>
+                            <button className="btn btn-ghost" onClick={() => setShowResultsPanel(false)}>Close</button>
+                            <button className="btn btn-run" onClick={() => { setShowResultsPanel(false); setShowTranslationModal(false); }}>Done</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Settings Modal ── */}
+            {showSettingsModal && (
+                <div className="help-overlay" onClick={() => setShowSettingsModal(false)}>
+                    <div className="ai-modal" onClick={e => e.stopPropagation()}>
+                        <div className="help-header">
+                            <div>
+                                <h2>⚙️ Settings</h2>
+                                <p className="help-subtitle">Configure your editor preferences and integrations.</p>
+                            </div>
+                            <button className="help-close" onClick={() => setShowSettingsModal(false)}>✕</button>
+                        </div>
+                        <div className="ai-body">
+                            <div className="ai-input-group">
+                                <label>Gemini API Key</label>
+                                <p style={{ fontSize: '12px', color: 'var(--text-3)', margin: '0 0 8px 0' }}>Used for AI Code Generation and Practice Mode AI assistance.</p>
+                                <input
+                                    type="password"
+                                    placeholder="AIzaSy..."
+                                    value={apiKey}
+                                    onChange={(e) => {
+                                        setApiKey(e.target.value);
+                                        localStorage.setItem('quanta_gemini_key', e.target.value);
+                                    }}
+                                />
+                                {apiKey && <span style={{ color: 'var(--green)', fontSize: '11px', marginTop: '4px' }}>✓ Key stored locally</span>}
+                            </div>
+
+                            <hr style={{ borderColor: 'var(--border-lt)', margin: '15px 0' }} />
+
+                            <div className="ai-input-group">
+                                <label>LeetCode Session Cookie</label>
+                                <p style={{ fontSize: '12px', color: 'var(--text-3)', margin: '0 0 8px 0' }}>Required for Auto-Submit. Copy the `LEETCODE_SESSION` cookie from your browser dev tools.</p>
+                                <input
+                                    type="password"
+                                    placeholder="eyJhb..."
+                                    value={leetcodeSession}
+                                    onChange={(e) => {
+                                        setLeetcodeSession(e.target.value);
+                                        localStorage.setItem('leetcode_session', e.target.value);
+                                    }}
+                                />
+                                {leetcodeSession && <span style={{ color: 'var(--green)', fontSize: '11px', marginTop: '4px' }}>✓ Session stored locally</span>}
+                            </div>
+
+                            <div className="ai-input-group" style={{ marginTop: '15px' }}>
+                                <label>LeetCode CSRF Token</label>
+                                <p style={{ fontSize: '12px', color: 'var(--text-3)', margin: '0 0 8px 0' }}>Required for Auto-Submit. Copy the `csrftoken` cookie from your browser dev tools.</p>
+                                <input
+                                    type="password"
+                                    placeholder="xyz123..."
+                                    value={csrfToken}
+                                    onChange={(e) => {
+                                        setCsrfToken(e.target.value);
+                                        localStorage.setItem('leetcode_csrf', e.target.value);
+                                    }}
+                                />
+                                {csrfToken && <span style={{ color: 'var(--green)', fontSize: '11px', marginTop: '4px' }}>✓ Token stored locally</span>}
+                            </div>
+                        </div>
+                        <div className="ai-footer">
+                            <button className="btn btn-run" onClick={() => setShowSettingsModal(false)}>Done</button>
                         </div>
                     </div>
                 </div>

@@ -9,8 +9,8 @@
     "electron:build": "tsc -p electron/tsconfig.json",
     "electron:mon": "wait-on tcp:5173 && cross-env NODE_ENV=development electronmon .",
     "package:win": "npm run build && electron-builder --win",
-    "package:mac": "npm run build && electron-builder --mac",
-    "package:linux": "npm run build && electron-builder --linux",
+    "package:mac": "npm run build && mkdir -p resources && cp ../build/quanta resources/quanta && electron-builder --mac",
+    "package:linux": "npm run build && mkdir -p resources && cp ../build/quanta resources/quanta && electron-builder --linux",
     "package:all": "npm run build && electron-builder --win --mac --linux"
   },
   "author": "Quanta Language",
@@ -19,6 +19,8 @@
   "dependencies": {
     "@google/genai": "^1.42.0",
     "@monaco-editor/react": "^4.6.0",
+    "graphql": "^16.13.0",
+    "graphql-request": "^7.4.0",
     "lucide-react": "^0.344.0",
     "monaco-editor": "^0.55.1",
     "node-pty": "^1.1.0",

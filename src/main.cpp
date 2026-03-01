@@ -48,6 +48,9 @@ int main(int argc, char* argv[]) {
     BinopPrecedence[TOK_LEQ] = 10;  // <=
     BinopPrecedence[TOK_NEQ] = 5;   // !=
     BinopPrecedence['%'] = 40;
+    // Logical operators
+    BinopPrecedence[TOK_AND] = 4;
+    BinopPrecedence[TOK_OR]  = 3;
     
     // [FIX] Add this line!
     BinopPrecedence[TOK_EQ] = 5;

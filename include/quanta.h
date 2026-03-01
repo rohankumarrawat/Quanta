@@ -90,6 +90,8 @@ enum TokenType {
     TOK_ISALPHA = -41,
     TOK_TRY = -51,
     TOK_CATCH = -52,
+    TOK_AND = -53,
+    TOK_OR = -54,
     TOK_ISDIGIT = -42,
     TOK_ISSPACE = -43,
     TOK_ISALNUM = -44,

@@ -315,6 +315,64 @@ Output ONLY valid, functional Quanta source code designed to run perfectly.`;
     }
 });
 
+// ─── IPC: AI Code Translation (Quanta -> Target) ───────────────────────────────
+ipcMain.handle('ai:translate', async (_, code: string, targetLanguage: string, apiKey: string, fnName: string) => {
+    try {
+        if (!apiKey) return { error: 'No Gemini API Key provided.' };
+        const ai = new GoogleGenAI({ apiKey: apiKey });
+        const fnNameInstruction = fnName
+            ? `5. FUNCTION NAME CRITICAL: The solution method MUST be named exactly \`${fnName}\` (this is the name LeetCode's driver calls). Do NOT use the original Quanta function name.`
+            : '';
+        const systemPrompt = `You are an expert code translator. Translate the following Quanta programming language code into valid, idiomatic ${targetLanguage}.
+CRITICAL INSTRUCTIONS:
+1. DO NOT WRAP CODE IN MARKDOWN BLOCKS. Return raw text only.
+2. Do not include any explanations, greetings, or comments other than the code itself.
+3. Ensure the translated code has the exact same logic as the Quanta code.
+4. LEETCODE FORMAT VITAL RULE: You MUST wrap your entire translation inside a class named \`Solution\`. 
+   - If Python3, use: \`class Solution:\\n    def ...\`
+   - If Java/C++/C#/JavaScript, use: \`class Solution { ... }\`
+   - Leetcode will crash with a NameError if you do not include the Solution class! Do not include a main() method.
+${fnNameInstruction}
+
+QUANTA CODE:
+${code}`;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: systemPrompt,
+        });
+
+        let rawCode = response.text || '';
+        // Strip markdown fences if Gemini wraps them
+        if (rawCode.startsWith('```')) {
+            const lines = rawCode.split('\n');
+            if (lines.length > 2) rawCode = lines.slice(1, -1).join('\n');
+        }
+        rawCode = rawCode.trim();
+
+        // ── Programmatic Solution wrapper enforcement ──────────────────────
+        // Even if Gemini ignores the prompt, we guarantee the class wrapper exists.
+        const hasSolutionClass = /class\s+Solution/i.test(rawCode);
+        if (!hasSolutionClass) {
+            if (targetLanguage === 'python3') {
+                // Indent every line by 4 spaces and wrap in class Solution
+                const indented = rawCode.split('\n').map((l: string) => '    ' + l).join('\n');
+                rawCode = `class Solution:\n${indented}`;
+            } else if (targetLanguage === 'java') {
+                rawCode = `class Solution {\n${rawCode}\n}`;
+            } else if (targetLanguage === 'cpp') {
+                rawCode = `class Solution {\npublic:\n${rawCode}\n};`;
+            } else if (targetLanguage === 'javascript') {
+                rawCode = `class Solution {\n${rawCode}\n}`;
+            }
+        }
+
+        return { code: rawCode };
+    } catch (error: any) {
+        return { error: error.message || 'Error occurred during code translation' };
+    }
+});
+
 // ─── IPC: LeetCode Integration (GraphQL) ──────────────────────────────────────
 ipcMain.handle('api:fetchLeetcode', async (_, titleSlug: string) => {
     try {
@@ -371,4 +429,94 @@ ipcMain.handle('api:fetchLeetcode', async (_, titleSlug: string) => {
     } catch (error: any) {
         return { error: error.message || 'Failed to fetch LeetCode data' };
     }
+});
+
+// ─── IPC: LeetCode Submit API ─────────────────────────────────────────────────
+ipcMain.handle('api:submitLeetcode', async (_, slug: string, questionId: string, lang: string, code: string, sessionCookie: string, csrfToken: string) => {
+    try {
+        if (!sessionCookie || !csrfToken) return { error: 'Missing LeetCode session or CSRF token in settings.' };
+
+        const url = `https://leetcode.com/problems/${slug}/submit/`;
+        const payload = {
+            lang: lang,
+            question_id: questionId,
+            typed_code: code
+        };
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Referer': `https://leetcode.com/problems/${slug}/`,
+                'Cookie': `LEETCODE_SESSION=${sessionCookie}; csrftoken=${csrfToken};`,
+                'X-CSRFToken': csrfToken,
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const data: any = await response.json();
+        if (data.error) {
+            return { error: data.error };
+        }
+        return { data }; // Expected: { submission_id: <number> }
+    } catch (error: any) {
+        return { error: error.message || 'Error occurred during LeetCode submission' };
+    }
+});
+
+ipcMain.handle('api:checkSubmission', async (_, submissionId: string, sessionCookie: string, csrfToken: string) => {
+    try {
+        const url = `https://leetcode.com/submissions/detail/${submissionId}/check/`;
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'Referer': `https://leetcode.com/`,
+                'Cookie': `LEETCODE_SESSION=${sessionCookie}; csrftoken=${csrfToken};`,
+                'Content-Type': 'application/json',
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+        });
+
+        const data: any = await response.json();
+        return { data }; // Output state
+    } catch (error: any) {
+        return { error: error.message || 'Error occurred while checking submission status' };
+    }
+});
+
+// ─── IPC: GitHub Auto-Push API ────────────────────────────────────────────────
+ipcMain.handle('api:pushToGithub', async (_, titleSlug: string, code: string) => {
+    return new Promise((resolve) => {
+        try {
+            // Assume the Quanta repository root is two levels up from electron/main.ts (which is in quanta-editor/electron)
+            const repoRoot = path.join(__dirname, '..', '..');
+            const solutionsDir = path.join(repoRoot, 'LeetCode-Solutions');
+
+            // 1. Ensure the directory exists
+            if (!fs.existsSync(solutionsDir)) {
+                fs.mkdirSync(solutionsDir, { recursive: true });
+            }
+
+            // 2. Write the solution code to a file
+            const filePath = path.join(solutionsDir, `${titleSlug}.qnt`);
+            fs.writeFileSync(filePath, code, 'utf-8');
+
+            // 3. Git Add, Commit, and Push
+            const commitMessage = `Accepted LeetCode Solution: ${titleSlug}`;
+            const gitCommand = `git add "LeetCode-Solutions/${titleSlug}.qnt" && git commit -m "${commitMessage}" && git push origin main`;
+
+            exec(gitCommand, { cwd: repoRoot }, (error, stdout, stderr) => {
+                if (error) {
+                    console.error("Git push failed:", stderr);
+                    // It might fail if already up to date, or detached HEAD, but we still saved the file locally
+                    resolve({ error: `Git push failed: ${error.message}`, stdout, stderr });
+                } else {
+                    resolve({ success: true, stdout });
+                }
+            });
+        } catch (error: any) {
+            resolve({ error: error.message || 'Failed to save or push to GitHub' });
+        }
+    });
 });

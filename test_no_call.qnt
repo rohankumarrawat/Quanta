@@ -1,8 +1,5 @@
-@ Practice: Palindrome Number
-@ Difficulty: Easy
-
-bool palindromeNumber(int x) {
-     if x < 0 or (x % 10 == 0 and x != 0) {
+bool palindromeNumber(x) {
+    if x < 0 or (x % 10 == 0 and x != 0) {
         return false
     }  
             

@@ -29,7 +29,7 @@ extern std::unique_ptr<llvm::IRBuilder<>> Builder;
 
 // --- KEEP THIS ONCE ---
 struct VarInfo {
-    llvm::AllocaInst *Alloca;
+    llvm::Value *Alloca;  // Can be an AllocaInst (stack) or CallInst (malloc/heap)
     llvm::Type *Type;
     std::string TypeName;
     llvm::Type *ElementType; // For Arrays and Lists
@@ -340,10 +340,12 @@ llvm::Function *FunctionAST::codegen() {
         RetTy = Builder->getFloatTy();
     } else if (ReturnType == "double") {
         RetTy = Builder->getDoubleTy();
+    } else if (ReturnType.size() > 2 && ReturnType.compare(ReturnType.size() - 2, 2, "[]") == 0) {
+        // Array return type (int[], string[], bool[], float[]) → return a ptr to the list struct
+        RetTy = Builder->getPtrTy();
     } else if (ReturnType.find("int") == 0) {
         int bits = 32;
         if (ReturnType.size() > 3) {
-            // FIX: Removed '* 8' so int8 is 8 bits, not 64 bits
             bits = std::atoi(ReturnType.substr(3).c_str()); 
         }
         RetTy = llvm::IntegerType::get(*TheContext, bits);
@@ -676,8 +678,9 @@ llvm::Value *VarDeclAST::codegen() {
     llvm::AllocaInst *Alloca = nullptr;
     if (NamedValues.find(Name) != NamedValues.end()) {
         VarInfo& oldInfo = NamedValues[Name];
-        if (oldInfo.Alloca->getAllocatedType()->getPrimitiveSizeInBits() >= TargetType->getPrimitiveSizeInBits()) {
-            Alloca = oldInfo.Alloca;
+        llvm::AllocaInst *oldAlloca = llvm::dyn_cast<llvm::AllocaInst>(oldInfo.Alloca);
+        if (oldAlloca && oldAlloca->getAllocatedType()->getPrimitiveSizeInBits() >= TargetType->getPrimitiveSizeInBits()) {
+            Alloca = oldAlloca;
         } 
     }
     if (!Alloca) {
@@ -717,10 +720,10 @@ llvm::Value *AssignmentAST::codegen() {
     llvm::Value *Val = RHS->codegen();
     if (!Val) return nullptr;
 
-    llvm::AllocaInst *Alloca = nullptr;
+    // 2. Check if variable exists
+    llvm::Value *Alloca = nullptr;
     llvm::Type *TargetType = nullptr;
 
-    // 2. Check if variable exists
     if (NamedValues.find(Name) == NamedValues.end()) {
     
         TargetType = Val->getType();
@@ -962,6 +965,21 @@ llvm::Value *BinaryExprAST::codegen() {
 
             return Builder->CreateZExt(L, llvm::Type::getInt32Ty(*TheContext), "bool_int");
             // return Builder->CreateUIToFP(L, llvm::Type::getDoubleTy(*TheContext), "bool_tmp");
+            
+        case TOK_AND:
+            // Convert to boolean (i1) handles
+            L = Builder->CreateICmpNE(L, llvm::ConstantInt::get(L->getType(), 0), "and_lhs_bool");
+            R = Builder->CreateICmpNE(R, llvm::ConstantInt::get(R->getType(), 0), "and_rhs_bool");
+            L = Builder->CreateLogicalAnd(L, R, "and_res");
+            return Builder->CreateZExt(L, llvm::Type::getInt32Ty(*TheContext), "bool_int");
+            
+        case TOK_OR:
+            // Convert to boolean (i1) handles
+            L = Builder->CreateICmpNE(L, llvm::ConstantInt::get(L->getType(), 0), "or_lhs_bool");
+            R = Builder->CreateICmpNE(R, llvm::ConstantInt::get(R->getType(), 0), "or_rhs_bool");
+            L = Builder->CreateLogicalOr(L, R, "or_res");
+            return Builder->CreateZExt(L, llvm::Type::getInt32Ty(*TheContext), "bool_int");
+            
         default: return nullptr;
     }
 }
@@ -972,10 +990,10 @@ llvm::Value *UpdateExprAST::codegen() {
     if (NamedValues.find(Name) == NamedValues.end())
         return LogErrorV("Unknown variable in update expression");
     
-    llvm::AllocaInst *V = NamedValues[Name].Alloca; // Ensure you use .Alloca
+    llvm::Value *V = NamedValues[Name].Alloca;
 
     // 2. Load current value
-    llvm::Value *CurVal = Builder->CreateLoad(V->getAllocatedType(), V, Name.c_str());
+    llvm::Value *CurVal = Builder->CreateLoad(NamedValues[Name].Type, V, Name.c_str());
 
     // 3. Add or Sub 1
     llvm::Value *One = llvm::ConstantInt::get(CurVal->getType(), 1);
@@ -1388,8 +1406,10 @@ llvm::Value *WhileAST::codegen() {
     // Generate code for the loop body
     if (!Body->codegen()) return nullptr;
 
-    // Jump back to the start (Condition)
-    Builder->CreateBr(CondBB);
+    // Jump back to the start (Condition) ONLY if we didn't return/break inside the loop
+    if (!Builder->GetInsertBlock()->getTerminator()) {
+        Builder->CreateBr(CondBB);
+    }
 
     // --- AFTER BLOCK ---
     TheFunction->insert(TheFunction->end(), AfterBB);
@@ -1567,8 +1587,8 @@ llvm::Value *StringIndexAST::codegen() {
                     llvm::Value *IdxVal = Indices[0]->codegen();
                     if (!IdxVal) return nullptr;
 
-                    // Read length field (assume struct: { length, capacity, ... })
-                    llvm::Value *LenFieldPtr = Builder->CreateStructGEP(info.Type, info.Alloca, 0);
+                    // Struct layout: { ptr=0, len=1, cap=2 }
+                    llvm::Value *LenFieldPtr = Builder->CreateStructGEP(info.Type, info.Alloca, 1); // field 1 = len
                     llvm::Value *ListLength = Builder->CreateLoad(Builder->getInt32Ty(), LenFieldPtr, "list_len");
                     
                     // Smart Guard: Dynamic List Bounds Check
@@ -1589,7 +1609,7 @@ llvm::Value *StringIndexAST::codegen() {
                     TheFunction->insert(TheFunction->end(), OkBB);
                     Builder->SetInsertPoint(OkBB);
 
-                    llvm::Value *PtrField = Builder->CreateStructGEP(info.Type, info.Alloca, 3); // 3 is data ptr
+                    llvm::Value *PtrField = Builder->CreateStructGEP(info.Type, info.Alloca, 0); // field 0 = data ptr
                     llvm::Value *BufferPtr = Builder->CreateLoad(Builder->getPtrTy(), PtrField);
                     
                     // GEP on the dynamically sized buffer
@@ -1695,14 +1715,14 @@ llvm::Value *ForIterableAST::codegen() {
                     {llvm::ConstantInt::get(Builder->getInt32Ty(), 0), llvm::ConstantInt::get(Builder->getInt32Ty(), 0)}
                 );
             } else if (info.Type->isStructTy()) {
-                // Dynamic List (assumes {length, capacity, ...})
+                // Dynamic List — struct layout: { ptr=0, len=1, cap=2 }
                 ElementTy = info.ElementType;
                 QuantaTypeName = info.TypeName;
                 
-                llvm::Value *LenFieldPtr = Builder->CreateStructGEP(info.Type, info.Alloca, 0);
+                llvm::Value *LenFieldPtr = Builder->CreateStructGEP(info.Type, info.Alloca, 1); // field 1 = len
                 Len32 = Builder->CreateLoad(Builder->getInt32Ty(), LenFieldPtr, "list_len");
                 
-                llvm::Value *PtrField = Builder->CreateStructGEP(info.Type, info.Alloca, 2);
+                llvm::Value *PtrField = Builder->CreateStructGEP(info.Type, info.Alloca, 0); // field 0 = data ptr
                 BufferPtr = Builder->CreateLoad(Builder->getPtrTy(), PtrField);
             }
         }
@@ -1916,44 +1936,57 @@ llvm::Value *DynamicListDeclAST::codegen() {
         Builder->getInt32Ty()
     });
 
-    llvm::AllocaInst *ListAlloca = Builder->CreateAlloca(ListStructTy, nullptr, VarName);
+    llvm::Value *ListAlloca = nullptr;
 
-    // Calculate initial capacity & heap bytes
-    int initialCap = 8;
-    int elSize = ElementType->getPrimitiveSizeInBits() / 8;
-    if (elSize == 0 && ElementType->isPointerTy()) elSize = 8;
+    if (InitValue && !dynamic_cast<ArrayExprAST*>(InitValue.get())) {
+        // The initializer is a function call (or variable alias) returning a List struct pointer!
+        ListAlloca = InitValue->codegen();
+        if (!ListAlloca) return nullptr;
+    } else {
+        // Malloc the struct container on the heap instead of the stack so it can be safely returned
+        llvm::Function *MallocFn = getMallocFunc();
+        const llvm::DataLayout &DL = TheModule->getDataLayout();
+        uint64_t StructBytesLen = DL.getTypeAllocSize(ListStructTy);
+        llvm::Value *StructSize = llvm::ConstantInt::get(Builder->getInt64Ty(), StructBytesLen);
+        ListAlloca = Builder->CreateCall(MallocFn, {StructSize}, "list_struct_" + VarName);
 
-    llvm::Value *BytesToAlloc = llvm::ConstantInt::get(Builder->getInt64Ty(), initialCap * elSize);
-    llvm::Value *BufferPtrRaw = Builder->CreateCall(getMallocFunc(), {BytesToAlloc}, "list_alloc");
-    trackForAutoFree(BufferPtrRaw);
+        // Calculate initial capacity & heap bytes
+        int initialCap = 8;
+        int elSize = ElementType->getPrimitiveSizeInBits() / 8;
+        if (elSize == 0 && ElementType->isPointerTy()) elSize = 8;
 
-    // Setup fields
-    llvm::Value *PtrField = Builder->CreateStructGEP(ListStructTy, ListAlloca, 0);
-    Builder->CreateStore(BufferPtrRaw, PtrField);
+        llvm::Value *BytesToAlloc = llvm::ConstantInt::get(Builder->getInt64Ty(), initialCap * elSize);
+        llvm::Value *BufferPtrRaw = Builder->CreateCall(getMallocFunc(), {BytesToAlloc}, "list_alloc");
+        // Removed trackForAutoFree so the array can safely escape the function
 
-    llvm::Value *LenField = Builder->CreateStructGEP(ListStructTy, ListAlloca, 1);
-    Builder->CreateStore(llvm::ConstantInt::get(Builder->getInt32Ty(), 0), LenField);
+        // Setup fields
+        llvm::Value *PtrField = Builder->CreateStructGEP(ListStructTy, ListAlloca, 0);
+        Builder->CreateStore(BufferPtrRaw, PtrField);
 
-    llvm::Value *CapField = Builder->CreateStructGEP(ListStructTy, ListAlloca, 2);
-    Builder->CreateStore(llvm::ConstantInt::get(Builder->getInt32Ty(), initialCap), CapField);
+        llvm::Value *LenField = Builder->CreateStructGEP(ListStructTy, ListAlloca, 1);
+        Builder->CreateStore(llvm::ConstantInt::get(Builder->getInt32Ty(), 0), LenField);
 
-    // Initialize from literal [x, y, z]
-    if (InitValue) {
-        if (auto *ArrayLit = dynamic_cast<ArrayExprAST*>(InitValue.get())) {
-            for (size_t i = 0; i < ArrayLit->Elements.size(); i++) {
-                llvm::Value *Val = ArrayLit->Elements[i]->codegen();
-                if (!Val) return nullptr;
-                
-                if (Val->getType() != ElementType) {
-                    if (Val->getType()->isIntegerTy() && ElementType->isFloatingPointTy()) Val = Builder->CreateSIToFP(Val, ElementType);
-                    else if (Val->getType()->isFloatingPointTy() && ElementType->isIntegerTy()) Val = Builder->CreateFPToSI(Val, ElementType);
-                    else if (Val->getType()->isIntegerTy() && ElementType->isIntegerTy()) Val = Builder->CreateIntCast(Val, ElementType, true);
+        llvm::Value *CapField = Builder->CreateStructGEP(ListStructTy, ListAlloca, 2);
+        Builder->CreateStore(llvm::ConstantInt::get(Builder->getInt32Ty(), initialCap), CapField);
+
+        // Initialize from literal [x, y, z]
+        if (InitValue) {
+            if (auto *ArrayLit = dynamic_cast<ArrayExprAST*>(InitValue.get())) {
+                for (size_t i = 0; i < ArrayLit->Elements.size(); i++) {
+                    llvm::Value *Val = ArrayLit->Elements[i]->codegen();
+                    if (!Val) return nullptr;
+                    
+                    if (Val->getType() != ElementType) {
+                        if (Val->getType()->isIntegerTy() && ElementType->isFloatingPointTy()) Val = Builder->CreateSIToFP(Val, ElementType);
+                        else if (Val->getType()->isFloatingPointTy() && ElementType->isIntegerTy()) Val = Builder->CreateFPToSI(Val, ElementType);
+                        else if (Val->getType()->isIntegerTy() && ElementType->isIntegerTy()) Val = Builder->CreateIntCast(Val, ElementType, true);
+                    }
+
+                    llvm::Value *IdxGEP = Builder->CreateGEP(ElementType, BufferPtrRaw, llvm::ConstantInt::get(Builder->getInt32Ty(), i), "init_idx");
+                    Builder->CreateStore(Val, IdxGEP);
                 }
-
-                llvm::Value *IdxGEP = Builder->CreateGEP(ElementType, BufferPtrRaw, llvm::ConstantInt::get(Builder->getInt32Ty(), i), "init_idx");
-                Builder->CreateStore(Val, IdxGEP);
+                Builder->CreateStore(llvm::ConstantInt::get(Builder->getInt32Ty(), ArrayLit->Elements.size()), LenField);
             }
-            Builder->CreateStore(llvm::ConstantInt::get(Builder->getInt32Ty(), ArrayLit->Elements.size()), LenField);
         }
     }
 
