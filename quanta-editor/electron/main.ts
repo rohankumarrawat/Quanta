@@ -63,7 +63,19 @@ app.whenReady().then(() => {
 });
 
 // ─── PTY TERMINAL INTEGRATION ───────────────────────────────────────────────
-const shell = os.platform() === 'win32' ? 'powershell.exe' : process.env.SHELL || 'bash';
+function getShellPath(): string {
+    if (os.platform() === 'win32') return 'powershell.exe';
+
+    // In packaged apps, process.env.PATH is stripped and relative paths fail posix_spawnp.
+    // Ensure we ALWAYS return an absolute platform-specific path.
+    const envShell = process.env.SHELL;
+    if (envShell && envShell.startsWith('/')) {
+        return envShell;
+    }
+    return os.platform() === 'darwin' ? '/bin/zsh' : '/bin/bash';
+}
+
+const shell = getShellPath();
 let ptyProcess: pty.IPty | null = null;
 
 function initPty() {
