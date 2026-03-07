@@ -36,6 +36,17 @@ export function QuickstartPage() {
                 <div className="grid gap-4">
                     <LinkCard title="Download for macOS (Apple Silicon)" href="/downloads/Quanta Studio-1.0.0-arm64.dmg" download="Quanta Studio-1.0.0-arm64.dmg" />
                     <LinkCard title="Download for macOS (Intel)" href="/downloads/Quanta Studio-1.0.0-arm64.dmg" download="Quanta Studio-1.0.0-arm64.dmg" />
+
+                    <div className="bg-orange-500/10 border border-orange-500/20 rounded-xl p-4 mt-1 mb-2">
+                        <h4 className="text-orange-400 font-medium text-sm mb-1">macOS Installation Note</h4>
+                        <p className="text-xs text-muted-foreground leading-relaxed mb-3">
+                            After downloading, macOS may mistakenly say the app is "damaged" because it is an unsigned open-source binary. To fix this, open Terminal and run the following command to bypass Gatekeeper:
+                        </p>
+                        <code className="block bg-black/50 p-2 rounded text-xs text-orange-300 font-mono select-all">
+                            xattr -cr "/Applications/Quanta Studio.app"
+                        </code>
+                    </div>
+
                     <LinkCard title="Download for Windows" href="/downloads/Quanta_Installer_v1.0.exe" download="Quanta_Installer_v1.0.exe" />
                     <LinkCard title="Download for Linux" href="/downloads/Quanta Studio-1.0.0.AppImage" download="Quanta Studio-1.0.0.AppImage" />
                 </div>

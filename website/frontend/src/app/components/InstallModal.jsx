@@ -138,8 +138,20 @@ export function InstallModal({ isOpen, onClose }) {
                             </div>
                         </div>
 
-                        <p className="text-xs text-muted-foreground text-center pt-1">
-                            All releases are free and open source · <a href="https://github.com" className="text-[#22d3ee] hover:underline">View on GitHub</a>
+                        {platform === "mac" && (
+                            <div className="bg-orange-500/10 border border-orange-500/20 rounded-xl p-4 mt-4">
+                                <h4 className="text-orange-400 font-medium text-sm mb-1">macOS Installation Note</h4>
+                                <p className="text-xs text-muted-foreground leading-relaxed mb-3">
+                                    macOS may say the app is "damaged" because it is an unsigned open-source binary. To fix this, run the following command in Terminal to bypass Gatekeeper:
+                                </p>
+                                <code className="block bg-black/50 p-2 rounded text-xs text-orange-300 font-mono select-all">
+                                    xattr -cr "/Applications/Quanta Studio.app"
+                                </code>
+                            </div>
+                        )}
+
+                        <p className="text-xs text-muted-foreground text-center pt-2">
+                            All releases are free and open source · <a href="https://github.com/rohankumarrawat/Quanta" className="text-[#22d3ee] hover:underline" target="_blank" rel="noopener noreferrer">View on GitHub</a>
                         </p>
                     </div>
                 </div>
