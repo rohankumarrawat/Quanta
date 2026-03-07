@@ -8,10 +8,10 @@
     "build": "tsc && vite build && npm run electron:build",
     "electron:build": "tsc -p electron/tsconfig.json",
     "electron:mon": "wait-on tcp:5173 && cross-env NODE_ENV=development electronmon .",
-    "package:win": "npm run build && mkdir -p resources && touch resources/quanta.exe && electron-builder --win",
-    "package:mac": "npm run build && mkdir -p resources && cp ../build/quanta resources/quanta && electron-builder --mac",
-    "package:linux": "npm run build && mkdir -p resources && cp ../build/quanta resources/quanta && electron-builder --linux",
-    "package:all": "npm run build && mkdir -p resources && touch resources/quanta.exe && electron-builder --win --mac --linux"
+    "package:win": "npm run build && rm -rf resources && mkdir resources && electron-builder --win",
+    "package:mac": "npm run build && rm -rf resources && mkdir resources && cp ../build/quanta resources/quanta && electron-builder --mac",
+    "package:linux": "npm run build && rm -rf resources && mkdir resources && cp ../build/quanta resources/quanta && electron-builder --linux",
+    "package:all": "npm run build && rm -rf resources && mkdir resources && electron-builder --win --mac --linux"
   },
   "author": "Quanta Language",
   "homepage": "https://github.com/rohankumarrawat/Quanta",
