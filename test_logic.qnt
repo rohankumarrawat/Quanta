@@ -1,22 +1,18 @@
-bool a = true
-bool b = false
+@ Practice: Palindrome Number
+@ Difficulty: Easy
 
-if (a and b) {
-    print("A AND B is true")
-} else {
-    print("A AND B is false")
-}
-
-if (a or b) {
-    print("A OR B is true")
-} else {
-    print("A OR B is false")
-}
-
-if (5 > 3 and 10 < 20) {
-    print("Complex AND is true")
-}
-
-if (b or false or true) {
-    print("Chained OR is true")
+bool palindromeNumber(int x) {
+     if x < 0 or (x % 10 == 0 and x != 0) {
+        return false
+    }  
+            
+    reversed_num = 0
+    original = x
+    
+    while (x > 0) {
+        reversed_num = (reversed_num * 10) + (x % 10)
+        x = x / 10
+    }
+        
+    return original == reversed_num
 }

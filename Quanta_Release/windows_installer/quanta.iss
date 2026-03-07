@@ -3,12 +3,12 @@
 
 #define MyAppName "Quanta Language"
 #define MyAppVersion "1.0"
-#define MyAppPublisher "Your Name / Organization"
+#define MyAppPublisher "Rohan Kumar Rawat"
 #define MyAppExeName "quanta.exe"
 
 [Setup]
 ; Basic Information
-AppId={{YOUR-UNIQUE-GUID-HERE}
+AppId={{A9B8C7D6-E5F4-3210-A1B2-C3D4E5F60718}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
@@ -19,13 +19,9 @@ OutputBaseFilename=Quanta_Installer_v{#MyAppVersion}
 Compression=lzma2/ultra
 SolidCompression=yes
 
-; User Interface Optimizations
-; Enable modern Wizard styling
+; User Interface
 WizardStyle=modern
-; If you have custom images, uncomment and point to them
-; WizardImageFile=installer_left_banner.bmp
-; WizardSmallImageFile=installer_top_right.bmp
-; SetupIconFile=quanta_icon.ico
+SetupIconFile=icon.ico
 
 ; Only require admin privileges if installing to Program Files
 PrivilegesRequired=admin

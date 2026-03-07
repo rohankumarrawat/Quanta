@@ -50,6 +50,7 @@
   "build": {
     "appId": "com.quantalang.editor",
     "productName": "Quanta Studio",
+    "icon": "build/icon",
     "afterPack": "postpack.js",
     "directories": {
       "output": "release"
@@ -65,6 +66,7 @@
       }
     ],
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         "nsis",
         "portable"
@@ -78,6 +80,7 @@
       "createStartMenuShortcut": true
     },
     "mac": {
+      "icon": "build/icon.icns",
       "target": [
         "dmg",
         "zip"
@@ -101,6 +104,7 @@
       ]
     },
     "linux": {
+      "icon": "build/icon.png",
       "target": [
         "AppImage",
         "deb"

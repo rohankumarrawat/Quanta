@@ -1,3 +1,7 @@
-node_modules/
-dist/
-dist-electron/
+node_modules
+dist
+dist-electron
+debug_asar
+release
+build
+.DS_Store
