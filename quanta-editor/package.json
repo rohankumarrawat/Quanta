@@ -59,6 +59,10 @@
       "dist/**/*",
       "dist-electron/**/*"
     ],
+    "asarUnpack": [
+      "**/*.node",
+      "node_modules/node-pty/**/*"
+    ],
     "extraResources": [
       {
         "from": "resources/quanta",
