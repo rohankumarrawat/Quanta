@@ -1,8 +1,0 @@
-{
-    "name": "quanta-fullstack",
-    "version": "1.0.0",
-    "private": true,
-    "scripts": {
-        "dev": "npm run dev --prefix frontend & npm start --prefix backend"
-    }
-}
