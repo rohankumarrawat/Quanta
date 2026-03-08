@@ -81,6 +81,14 @@ const IconSettings = () => (
     </svg>
 );
 
+const IconPublish = () => (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <polyline points="17 8 12 3 7 8" />
+        <line x1="12" y1="3" x2="12" y2="15" />
+    </svg>
+);
+
 const DEFAULT_CODE = `print("Welcome to Quanta")`;
 
 // ─── App ──────────────────────────────────────────────────────────────────────
@@ -207,6 +215,18 @@ export default function App() {
     const [apiKey, setApiKey] = useState<string>(localStorage.getItem('quanta_gemini_key') || '');
     const [leetcodeSession, setLeetcodeSession] = useState<string>(localStorage.getItem('leetcode_session') || '');
     const [csrfToken, setCsrfToken] = useState<string>(localStorage.getItem('leetcode_csrf') || '');
+    const [quantaAuthToken, setQuantaAuthToken] = useState<string>(localStorage.getItem('quanta_auth_token') || '');
+    const [quantaUser, setQuantaUser] = useState<any>(JSON.parse(localStorage.getItem('quanta_user') || 'null'));
+
+    // Login State
+    const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
+    const [loginEmail, setLoginEmail] = useState<string>('');
+    const [loginPassword, setLoginPassword] = useState<string>('');
+    const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
+
+    // Publishing State
+    const [showPublishModal, setShowPublishModal] = useState<boolean>(false);
+    const [isPublishing, setIsPublishing] = useState<boolean>(false);
 
     // Practice Mode State
     const [isPracticeMode, setIsPracticeMode] = useState<boolean>(false);
@@ -1016,6 +1036,26 @@ export default function App() {
                                 })
                                 .catch(err => console.error("GitHub Push Error:", err));
                         }
+
+                        // Auto-reward coins to Quanta profile
+                        if (quantaAuthToken && quantaUser) {
+                            const isDev = process.env.NODE_ENV === 'development';
+                            const apiUrl = isDev ? 'http://localhost:3001/api/auth/reward' : 'https://getquanta.online/api/auth/reward';
+                            fetch(apiUrl, {
+                                method: 'POST',
+                                headers: { 'Authorization': `Bearer ${quantaAuthToken}` }
+                            })
+                                .then(res => res.json())
+                                .then(data => {
+                                    if (data.coins !== undefined) {
+                                        const updatedUser = { ...quantaUser, coins: data.coins };
+                                        setQuantaUser(updatedUser);
+                                        localStorage.setItem('quanta_user', JSON.stringify(updatedUser));
+                                        if (terminalRef.current) terminalRef.current.write(`\\r\\n[Rewards] 🎉 Earned 10 Coins! Total: ${data.coins} Coins\\r\\n`);
+                                    }
+                                })
+                                .catch(err => console.error("Reward Error:", err));
+                        }
                     } else if (statusDisplay === 'Wrong Answer') {
                         displayString = `❌ Wrong Answer!\nExpected: ${checkRes.data.expected_output || 'N/A'}\nGot: ${checkRes.data.code_output || 'N/A'}`;
                     } else if (statusDisplay === 'Runtime Error') {
@@ -1034,6 +1074,74 @@ export default function App() {
         }
     };
 
+    // ── Blog Publishing ──────────────────────────────────────────────────────────
+    const handlePublishBlog = async () => {
+        if (!window.electronAPI) {
+            alert("This feature is only available in the Quanta Studio Desktop App.");
+            setIsPublishing(false);
+            return;
+        }
+
+        setIsPublishing(true);
+        if (terminalRef.current) terminalRef.current.write("Sending code to Gemini for AI blog generation...\r\n");
+
+        try {
+            const result = await window.electronAPI.publishBlog(code, quantaAuthToken, apiKey);
+
+            if (result.error) {
+                if (terminalRef.current) terminalRef.current.write(`[Publish Error]: ${result.error}\r\n`);
+                alert(result.error);
+            } else if (result.success) {
+                if (terminalRef.current) terminalRef.current.write(`🎉 AI Blog Post Published Successfully to getquanta.online!\r\nTitle: "${result.post.title}"\r\n`);
+                setShowPublishModal(false);
+                alert("✨ Blog Post Published Successfully!");
+            }
+        } catch (e: any) {
+            if (terminalRef.current) terminalRef.current.write(`[Publish Fatal Error]: ${e.message}\r\n`);
+            alert("Error: " + e.message);
+        } finally {
+            setIsPublishing(false);
+        }
+    };
+
+    // ── Authentication ────────────────────────────────────────────────────────────
+    const handleLoginSubmit = async () => {
+        setIsLoggingIn(true);
+        try {
+            const isDev = process.env.NODE_ENV === 'development';
+            const apiUrl = isDev ? 'http://localhost:3001/api/auth/login' : 'https://getquanta.online/api/auth/login';
+
+            const res = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: loginEmail, password: loginPassword })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message || 'Login failed');
+
+            setQuantaAuthToken(data.token);
+            setQuantaUser(data.user);
+            localStorage.setItem('quanta_auth_token', data.token);
+            localStorage.setItem('quanta_user', JSON.stringify(data.user));
+            setShowLoginModal(false);
+            if (terminalRef.current) terminalRef.current.write(`\\r\\n[Auth] Successfully logged in as ${data.user.username}. Coins: ${data.user.coins || 0}\\r\\n`);
+        } catch (err: any) {
+            alert(err.message);
+        } finally {
+            setIsLoggingIn(false);
+        }
+    };
+
+    const handleLogout = () => {
+        setQuantaAuthToken('');
+        setQuantaUser(null);
+        setLoginEmail('');
+        setLoginPassword('');
+        localStorage.removeItem('quanta_auth_token');
+        localStorage.removeItem('quanta_user');
+        if (terminalRef.current) terminalRef.current.write(`\\r\\n[Auth] Logged out.\\r\\n`);
+    };
+
     return (
         <div className="app">
 
@@ -1048,7 +1156,24 @@ export default function App() {
                         Quanta Studio
                     </div>
                 </div>
-                <div className="titlebar-right no-drag" style={{ display: 'flex', gap: 10, marginRight: 10 }}>
+                <div className="titlebar-right no-drag" style={{ display: 'flex', gap: 10, marginRight: 10, alignItems: 'center' }}>
+                    {quantaUser ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, marginRight: 10 }}>
+                            <span style={{ color: '#89d185' }}>●</span>
+                            <span style={{ color: '#ccc' }}>{quantaUser.username}</span>
+                            <span style={{ color: '#d19a66', background: '#2d2d2d', padding: '2px 6px', borderRadius: 4 }}>
+                                {quantaUser.coins || 0} Coins
+                            </span>
+                            <button onClick={handleLogout} style={{ background: 'transparent', border: 'none', color: '#f14c4c', cursor: 'pointer', marginLeft: 4 }}>Logout</button>
+                        </div>
+                    ) : (
+                        <button
+                            onClick={() => setShowLoginModal(true)}
+                            className="btn"
+                            style={{ padding: '4px 12px', fontSize: 12, background: '#4f46e5', marginRight: 10 }}>
+                            Login
+                        </button>
+                    )}
                     <div className="vs-activity-icon" onClick={handleSaveFile} style={{ width: 30, height: 30 }} title="Save">
                         <IconSave />
                     </div>
@@ -1082,6 +1207,9 @@ export default function App() {
                         </div>
                     </div>
                     <div className="vs-activity-actions">
+                        <div className="vs-activity-icon" onClick={() => setShowPublishModal(true)} title="Publish to Quanta Blog">
+                            <IconPublish />
+                        </div>
                         <div className="vs-activity-icon" onClick={() => setShowSettingsModal(true)} title="Settings">
                             <IconSettings />
                         </div>
@@ -1727,6 +1855,56 @@ export default function App() {
                 </div>
             )}
 
+            {/* ── Login Modal ── */}
+            {showLoginModal && (
+                <div className="help-overlay" onClick={() => !isLoggingIn && setShowLoginModal(false)}>
+                    <div className="ai-modal" onClick={e => e.stopPropagation()} style={{ width: 400 }}>
+                        <div className="help-header">
+                            <div>
+                                <h2>🔒 Login to Quanta</h2>
+                                <p className="help-subtitle">Access your account and earn coins.</p>
+                            </div>
+                            <button className="help-close" onClick={() => !isLoggingIn && setShowLoginModal(false)}>✕</button>
+                        </div>
+                        <div className="ai-body">
+                            <div className="ai-input-group">
+                                <label>Email</label>
+                                <input
+                                    type="email"
+                                    placeholder="Enter your email"
+                                    value={loginEmail}
+                                    onChange={(e) => setLoginEmail(e.target.value)}
+                                    disabled={isLoggingIn}
+                                />
+                            </div>
+                            <div className="ai-input-group">
+                                <label>Password</label>
+                                <input
+                                    type="password"
+                                    placeholder="Enter your password"
+                                    value={loginPassword}
+                                    onChange={(e) => setLoginPassword(e.target.value)}
+                                    disabled={isLoggingIn}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && loginEmail && loginPassword) handleLoginSubmit();
+                                    }}
+                                />
+                            </div>
+                        </div>
+                        <div className="ai-footer">
+                            <button className="btn btn-ghost" onClick={() => setShowLoginModal(false)} disabled={isLoggingIn}>Cancel</button>
+                            <button
+                                className={`btn btn-run ${isLoggingIn ? 'running' : ''}`}
+                                onClick={handleLoginSubmit}
+                                disabled={isLoggingIn || !loginEmail || !loginPassword}
+                            >
+                                {isLoggingIn ? 'Logging in...' : 'Login'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* ── Settings Modal ── */}
             {showSettingsModal && (
                 <div className="help-overlay" onClick={() => setShowSettingsModal(false)}>
@@ -1741,7 +1919,7 @@ export default function App() {
                         <div className="ai-body">
                             <div className="ai-input-group">
                                 <label>Gemini API Key</label>
-                                <p style={{ fontSize: '12px', color: 'var(--text-3)', margin: '0 0 8px 0' }}>Used for AI Code Generation and Practice Mode AI assistance.</p>
+                                <p style={{ fontSize: '12px', color: 'var(--text-3)', margin: '0 0 8px 0' }}>Used for AI Code Generation, Practice Mode assistance, and Blog Publishing.</p>
                                 <input
                                     type="password"
                                     placeholder="AIzaSy..."
@@ -1788,6 +1966,51 @@ export default function App() {
                         </div>
                         <div className="ai-footer">
                             <button className="btn btn-run" onClick={() => setShowSettingsModal(false)}>Done</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Publish Blog Modal ── */}
+            {showPublishModal && (
+                <div className="help-overlay" onClick={() => !isPublishing && setShowPublishModal(false)}>
+                    <div className="ai-modal" onClick={e => e.stopPropagation()}>
+                        <div className="help-header">
+                            <div>
+                                <h2>🚀 Publish to Quanta Network</h2>
+                                <p className="help-subtitle">Let AI write a technical blog post explaining your current code.</p>
+                            </div>
+                            <button className="help-close" onClick={() => !isPublishing && setShowPublishModal(false)}>✕</button>
+                        </div>
+                        <div className="ai-body">
+                            {(!quantaAuthToken || !apiKey) ? (
+                                <div style={{ background: 'rgba(244, 67, 54, 0.1)', border: '1px solid rgba(244, 67, 54, 0.3)', padding: 15, borderRadius: 8, color: '#f44336' }}>
+                                    <strong>Missing Requirements</strong>
+                                    <p style={{ margin: '8px 0 0 0', fontSize: 13 }}>
+                                        To publish, you must <strong>Login to Quanta Studio</strong> (top bar) and configure your <strong>Gemini API Key</strong> in Settings.
+                                    </p>
+                                </div>
+                            ) : (
+                                <div style={{ color: 'var(--text-2)', fontSize: 14 }}>
+                                    <p>Upon confirming, Gemini 2.5 Flash will:</p>
+                                    <ul style={{ paddingLeft: 20, margin: '10px 0' }}>
+                                        <li>Analyze your current Quanta file length: <strong>{code?.length || 0} characters</strong></li>
+                                        <li>Write an SEO-optimized Markdown blog explaining the logic</li>
+                                        <li>Automatically post it live to your auth account</li>
+                                    </ul>
+                                    <p style={{ marginBottom: 0 }}>This happens automatically. Ensure your active tab contains the code you want to feature.</p>
+                                </div>
+                            )}
+                        </div>
+                        <div className="ai-footer">
+                            <button className="btn btn-ghost" onClick={() => setShowPublishModal(false)} disabled={isPublishing}>Cancel</button>
+                            <button
+                                className={`btn btn-run ${isPublishing ? 'running' : ''}`}
+                                onClick={handlePublishBlog}
+                                disabled={isPublishing || !quantaAuthToken || !apiKey || !code}
+                            >
+                                {isPublishing ? 'Publishing via AI...' : 'Generate & Publish Post'}
+                            </button>
                         </div>
                     </div>
                 </div>

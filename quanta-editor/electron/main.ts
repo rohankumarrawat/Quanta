@@ -532,3 +532,72 @@ ipcMain.handle('api:pushToGithub', async (_, titleSlug: string, code: string) =>
         }
     });
 });
+
+// ─── IPC: Publish Blog API (Gemini + getquanta.online) ────────────────────────
+ipcMain.handle('api:publishBlog', async (_, codeSnippet: string, authToken: string, apiKey: string) => {
+    try {
+        if (!apiKey) return { error: 'No Gemini API Key provided. Configure it in settings first.' };
+        if (!authToken) return { error: 'You must be logged into Quanta Studio to publish.' };
+
+        // 1. Generate the blog post using Gemini
+        const ai = new GoogleGenAI({ apiKey: apiKey });
+
+        const systemPrompt = `You are an expert technical blog writer for the Quanta programming language.
+The user has provided a snippet of Quanta code. Your job is to analyze this code and write a highly engaging, SEO-friendly blog post explaining it.
+The output MUST be a strict JSON object with the following properties:
+- title: A catchy, SEO-friendly title (string)
+- preview: A 1-2 sentence hook explaining the post (string)
+- content: The full markdown body of the post, starting directly with the explanation. You MUST embed the user's code snippet inside this markdown using \`\`\`quanta fences. Make it instructional. (string)
+- tags: An array of 3-5 relevant lowercase tags (e.g. ["tutorial", "loops", "syntax"]) (string array)
+- readTime: Estimated read time (e.g. "3 min read") (string)
+Do not include any other text outside the JSON object.
+
+USER'S CODE SNIPPET:
+${codeSnippet}
+`;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: systemPrompt,
+            config: {
+                responseMimeType: "application/json",
+            }
+        });
+
+        if (!response.text) throw new Error("AI returned empty response");
+
+        let blogData;
+        try {
+            blogData = JSON.parse(response.text);
+        } catch (e) {
+            console.error("Failed to parse Gemini JSON:", response.text);
+            throw new Error("AI failed to return valid JSON format");
+        }
+
+        // 2. Publish to the live Quanta backend (or localhost in dev)
+        const isDev = process.env.NODE_ENV === 'development';
+        const apiUrl = isDev
+            ? 'http://localhost:3001/api/blog/publish'
+            : 'https://getquanta.online/api/blog/publish';
+
+        const apiRes = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-auth-token': authToken
+            },
+            body: JSON.stringify(blogData)
+        });
+
+        if (!apiRes.ok) {
+            const errData: any = await apiRes.json().catch(() => ({}));
+            throw new Error(`Server returned ${apiRes.status}: ${errData.message || apiRes.statusText}`);
+        }
+
+        const publishedPost: any = await apiRes.json();
+        return { success: true, post: publishedPost };
+
+    } catch (error: any) {
+        return { error: error.message || 'Failed to publish blog post' };
+    }
+});

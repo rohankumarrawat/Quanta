@@ -11,8 +11,8 @@ export function AboutPage() {
                     <span>/</span>
                     <span>About</span>
                 </div>
-                <h1 className="text-5xl font-bold">About Quanta</h1>
-                <p className="text-xl text-muted-foreground leading-relaxed max-w-3xl">
+                <h1 className="text-4xl md:text-5xl font-bold">About Quanta</h1>
+                <p className="text-lg md:text-xl text-muted-foreground leading-relaxed max-w-3xl">
                     Learn about the philosophy, design principles, and vision behind Quanta —
                     the programming language built to be beautiful, predictable, and memory-safe out of the box.
                 </p>
@@ -221,10 +221,10 @@ export function AboutPage() {
                     Quanta is open source and actively developed. Download the installer and start writing
                     your first <code className="px-1.5 py-0.5 rounded bg-muted text-[#22d3ee] font-mono text-sm">.qnt</code> program today.
                 </p>
-                <div className="flex gap-4 justify-center">
+                <div className="flex flex-col sm:flex-row gap-4 justify-center">
                     <a
                         href="/quickstart"
-                        className="inline-flex items-center px-6 py-3 rounded-lg bg-gradient-to-r from-[#22d3ee] to-[#a855f7] text-background font-medium hover:shadow-lg hover:shadow-[#22d3ee]/25 transition-all"
+                        className="inline-flex items-center justify-center px-6 py-3 rounded-lg bg-gradient-to-r from-[#22d3ee] to-[#a855f7] text-background font-medium hover:shadow-lg hover:shadow-[#22d3ee]/25 transition-all"
                     >
                         Get Started
                     </a>
@@ -232,7 +232,7 @@ export function AboutPage() {
                         href="https://github.com/rohankumarrawat/quanta"
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center px-6 py-3 rounded-lg border border-border text-foreground font-medium hover:bg-card transition-all"
+                        className="inline-flex items-center justify-center px-6 py-3 rounded-lg border border-border text-foreground font-medium hover:bg-card transition-all"
                     >
                         View on GitHub
                     </a>

@@ -28,7 +28,40 @@ std::unique_ptr<llvm::IRBuilder<>> Builder;
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::cerr << "Usage: quanta <file.qnt>" << std::endl;
+        std::cerr << "Run 'quanta --help' for more information" << std::endl;
         return 1;
+    }
+
+    std::string arg1 = argv[1];
+
+    if (arg1 == "--help" || arg1 == "-h") {
+        std::cout << "Quanta Compiler - Version 1.0.0\n\n";
+        std::cout << "Usage:\n";
+        std::cout << "  quanta <file.qnt>     Compile and execute a Quanta script in-memory.\n";
+        std::cout << "  quanta --help, -h     Show this help message.\n";
+        std::cout << "  quanta --version, -v  Show the compiler version.\n";
+        std::cout << "  quanta get update     Check for and instructions to get the latest Quanta version.\n";
+        return 0;
+    }
+
+    if (arg1 == "--version" || arg1 == "-v") {
+        std::cout << "Quanta v1.0.0 (LLVM Backend)\n";
+        return 0;
+    }
+
+    if (arg1 == "get") {
+        if (argc >= 3 && std::string(argv[2]) == "update") {
+            std::cout << "\nFetching the latest Quanta update...\n";
+            std::cout << "You may be prompted for your password to install Quanta globally.\n";
+            int res = system("curl -fsSL https://getquanta.online/install.sh | sudo bash");
+            if (res != 0) {
+                std::cerr << "Update failed. Please check your internet connection or install manually from https://getquanta.online\n";
+            }
+            return res == 0 ? 0 : 1;
+        } else {
+            std::cerr << "Unknown command: quanta get " << (argc >= 3 ? argv[2] : "") << std::endl;
+            return 1;
+        }
     }
     std::string filepath = argv[1];
     size_t lastSlash = filepath.find_last_of("/\\");

@@ -29,6 +29,7 @@ interface Window {
         submitLeetcode: (slug: string, questionId: string, lang: string, code: string, sessionCookie: string, csrfToken: string) => Promise<{ error?: string, data?: any }>;
         checkSubmission: (submissionId: string, sessionCookie: string, csrfToken: string) => Promise<{ error?: string, data?: any }>;
         pushToGithub: (titleSlug: string, code: string) => Promise<{ error?: string, success?: boolean, stdout?: string }>;
+        publishBlog: (code: string, authToken: string, apiKey: string) => Promise<{ error?: string, success?: boolean, post?: any }>;
         terminalInput: (data: string) => void;
         resizeTerminal: (cols: number, rows: number) => void;
         onTerminalData: (callback: (data: string) => void) => void;

@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     submitLeetcode: (slug: string, questionId: string, lang: string, code: string, sessionCookie: string, csrfToken: string) => ipcRenderer.invoke('api:submitLeetcode', slug, questionId, lang, code, sessionCookie, csrfToken),
     checkSubmission: (submissionId: string, sessionCookie: string, csrfToken: string) => ipcRenderer.invoke('api:checkSubmission', submissionId, sessionCookie, csrfToken),
     pushToGithub: (titleSlug: string, code: string) => ipcRenderer.invoke('api:pushToGithub', titleSlug, code),
+    publishBlog: (code: string, authToken: string, apiKey: string) => ipcRenderer.invoke('api:publishBlog', code, authToken, apiKey),
 
     // Terminal APIs
     terminalInput: (data: string) => ipcRenderer.send('terminal:input', data),
