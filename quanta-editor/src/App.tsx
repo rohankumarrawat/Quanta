@@ -2093,49 +2093,190 @@ export default function App() {
 
             {/* ── Login Modal ── */}
             {showLoginModal && (
-                <div className="help-overlay" onClick={() => !isLoggingIn && setShowLoginModal(false)}>
-                    <div className="ai-modal" onClick={e => e.stopPropagation()} style={{ width: 400 }}>
-                        <div className="help-header">
-                            <div>
-                                <h2>🔒 Login to Quanta</h2>
-                                <p className="help-subtitle">Access your account and earn coins.</p>
-                            </div>
-                            <button className="help-close" onClick={() => !isLoggingIn && setShowLoginModal(false)}>✕</button>
-                        </div>
-                        <div className="ai-body">
-                            <div className="ai-input-group">
-                                <label>Email</label>
-                                <input
-                                    type="email"
-                                    placeholder="Enter your email"
-                                    value={loginEmail}
-                                    onChange={(e) => setLoginEmail(e.target.value)}
-                                    disabled={isLoggingIn}
-                                />
-                            </div>
-                            <div className="ai-input-group">
-                                <label>Password</label>
-                                <input
-                                    type="password"
-                                    placeholder="Enter your password"
-                                    value={loginPassword}
-                                    onChange={(e) => setLoginPassword(e.target.value)}
-                                    disabled={isLoggingIn}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter' && loginEmail && loginPassword) handleLoginSubmit();
-                                    }}
-                                />
-                            </div>
-                        </div>
-                        <div className="ai-footer">
-                            <button className="btn btn-ghost" onClick={() => setShowLoginModal(false)} disabled={isLoggingIn}>Cancel</button>
+                <div
+                    className="help-overlay"
+                    onClick={() => !isLoggingIn && setShowLoginModal(false)}
+                    style={{ zIndex: 9999 }}
+                >
+                    <div
+                        onClick={e => e.stopPropagation()}
+                        style={{
+                            width: 420,
+                            background: 'linear-gradient(170deg, #1a1a2e 0%, #16213e 60%, #0f3460 100%)',
+                            borderRadius: 16,
+                            overflow: 'hidden',
+                            boxShadow: '0 32px 80px rgba(0,0,0,0.8), 0 0 0 1px rgba(79,70,229,0.35)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                        }}
+                    >
+                        {/* Brand Header */}
+                        <div style={{
+                            padding: '28px 28px 20px 28px',
+                            borderBottom: '1px solid rgba(255,255,255,0.07)',
+                            background: 'linear-gradient(135deg, rgba(79,70,229,0.25) 0%, rgba(124,58,237,0.15) 100%)',
+                            position: 'relative',
+                        }}>
+                            {/* Close btn */}
                             <button
-                                className={`btn btn-run ${isLoggingIn ? 'running' : ''}`}
+                                onClick={() => !isLoggingIn && setShowLoginModal(false)}
+                                style={{ position: 'absolute', top: 16, right: 16, background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: 6, color: '#888', fontSize: 16, width: 28, height: 28, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s' }}
+                            >✕</button>
+
+                            {/* Logo area */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                                <div style={{
+                                    width: 44, height: 44, borderRadius: 12,
+                                    background: 'linear-gradient(135deg, #4f46e5, #7c3aed)',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    fontSize: 22, boxShadow: '0 4px 14px rgba(79,70,229,0.5)'
+                                }}>◆</div>
+                                <div>
+                                    <div style={{ fontSize: 18, fontWeight: 700, color: '#e6edf3', letterSpacing: 0.3 }}>Quanta Studio</div>
+                                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 1 }}>Sign in to your account</div>
+                                </div>
+                            </div>
+                            <p style={{ margin: 0, fontSize: 13, color: 'rgba(255,255,255,0.5)', lineHeight: 1.5 }}>
+                                Use your <strong style={{ color: '#a78bfa' }}>getquanta.online</strong> credentials to unlock coins, Community Q&A, and blog publishing.
+                            </p>
+                        </div>
+
+                        {/* Form Body */}
+                        <div style={{ padding: '24px 28px 16px 28px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+                            {/* Email input */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                <label style={{ fontSize: 12, fontWeight: 600, color: '#8b949e', textTransform: 'uppercase', letterSpacing: 0.8 }}>Email</label>
+                                <div style={{ position: 'relative' }}>
+                                    <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 16, pointerEvents: 'none', opacity: 0.5 }}>📧</span>
+                                    <input
+                                        type="email"
+                                        placeholder="you@example.com"
+                                        value={loginEmail}
+                                        onChange={(e) => setLoginEmail(e.target.value)}
+                                        disabled={isLoggingIn}
+                                        autoFocus
+                                        style={{
+                                            width: '100%',
+                                            paddingLeft: 40, paddingRight: 14,
+                                            paddingTop: 11, paddingBottom: 11,
+                                            background: 'rgba(255,255,255,0.06)',
+                                            border: '1px solid rgba(255,255,255,0.1)',
+                                            borderRadius: 10,
+                                            color: '#e6edf3',
+                                            fontSize: 14,
+                                            outline: 'none',
+                                            boxSizing: 'border-box',
+                                            transition: 'border-color 0.2s, box-shadow 0.2s',
+                                        }}
+                                        onFocus={e => { e.target.style.borderColor = 'rgba(124,58,237,0.7)'; e.target.style.boxShadow = '0 0 0 3px rgba(124,58,237,0.15)'; }}
+                                        onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; e.target.style.boxShadow = 'none'; }}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Password input */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                <label style={{ fontSize: 12, fontWeight: 600, color: '#8b949e', textTransform: 'uppercase', letterSpacing: 0.8 }}>Password</label>
+                                <div style={{ position: 'relative' }}>
+                                    <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 16, pointerEvents: 'none', opacity: 0.5 }}>🔑</span>
+                                    <input
+                                        type="password"
+                                        placeholder="••••••••"
+                                        value={loginPassword}
+                                        onChange={(e) => setLoginPassword(e.target.value)}
+                                        disabled={isLoggingIn}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && loginEmail && loginPassword) handleLoginSubmit();
+                                        }}
+                                        style={{
+                                            width: '100%',
+                                            paddingLeft: 40, paddingRight: 14,
+                                            paddingTop: 11, paddingBottom: 11,
+                                            background: 'rgba(255,255,255,0.06)',
+                                            border: '1px solid rgba(255,255,255,0.1)',
+                                            borderRadius: 10,
+                                            color: '#e6edf3',
+                                            fontSize: 14,
+                                            outline: 'none',
+                                            boxSizing: 'border-box',
+                                            letterSpacing: loginPassword ? 3 : 0,
+                                            transition: 'border-color 0.2s, box-shadow 0.2s',
+                                        }}
+                                        onFocus={e => { e.target.style.borderColor = 'rgba(124,58,237,0.7)'; e.target.style.boxShadow = '0 0 0 3px rgba(124,58,237,0.15)'; }}
+                                        onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; e.target.style.boxShadow = 'none'; }}
+                                    />
+                                </div>
+                                <p style={{ margin: '2px 0 0 2px', fontSize: 11, color: 'rgba(255,255,255,0.3)' }}>Press Enter to submit</p>
+                            </div>
+                        </div>
+
+                        {/* Actions */}
+                        <div style={{ padding: '8px 28px 24px 28px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            {/* Login button */}
+                            <button
                                 onClick={handleLoginSubmit}
                                 disabled={isLoggingIn || !loginEmail || !loginPassword}
+                                style={{
+                                    width: '100%',
+                                    padding: '12px 0',
+                                    background: (isLoggingIn || !loginEmail || !loginPassword)
+                                        ? 'rgba(79,70,229,0.35)'
+                                        : 'linear-gradient(135deg, #4f46e5, #7c3aed)',
+                                    border: 'none',
+                                    borderRadius: 10,
+                                    color: '#fff',
+                                    fontWeight: 700,
+                                    fontSize: 14,
+                                    cursor: (isLoggingIn || !loginEmail || !loginPassword) ? 'not-allowed' : 'pointer',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                                    boxShadow: (isLoggingIn || !loginEmail || !loginPassword) ? 'none' : '0 4px 18px rgba(79,70,229,0.45)',
+                                    transition: 'all 0.2s',
+                                    letterSpacing: 0.3,
+                                }}
                             >
-                                {isLoggingIn ? 'Logging in...' : 'Login'}
+                                {isLoggingIn ? (
+                                    <>
+                                        <span style={{ display: 'inline-block', width: 14, height: 14, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+                                        Signing in...
+                                    </>
+                                ) : '🚀 Sign In'}
                             </button>
+
+                            {/* Cancel link */}
+                            <button
+                                onClick={() => !isLoggingIn && setShowLoginModal(false)}
+                                disabled={isLoggingIn}
+                                style={{
+                                    width: '100%',
+                                    padding: '9px 0',
+                                    background: 'transparent',
+                                    border: '1px solid rgba(255,255,255,0.08)',
+                                    borderRadius: 10,
+                                    color: '#8b949e',
+                                    fontSize: 13,
+                                    cursor: 'pointer',
+                                    transition: 'all 0.15s',
+                                }}
+                            >Cancel</button>
+                        </div>
+
+                        {/* Footer */}
+                        <div style={{
+                            padding: '14px 28px',
+                            borderTop: '1px solid rgba(255,255,255,0.06)',
+                            textAlign: 'center',
+                            background: 'rgba(0,0,0,0.15)',
+                        }}>
+                            <p style={{ margin: 0, fontSize: 11, color: 'rgba(255,255,255,0.3)' }}>
+                                Don't have an account? Visit{' '}
+                                <a
+                                    href="https://getquanta.online"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    style={{ color: '#7c3aed', textDecoration: 'none' }}
+                                >getquanta.online</a>
+                                {' '}to register.
+                            </p>
                         </div>
                     </div>
                 </div>
