@@ -89,6 +89,22 @@ const IconPublish = () => (
     </svg>
 );
 
+const IconCommunity = () => (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+);
+
+const IconSend = () => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="22" y1="2" x2="11" y2="13" />
+        <polygon points="22 2 15 22 11 13 2 9 22 2" />
+    </svg>
+);
+
 const DEFAULT_CODE = `print("Welcome to Quanta")`;
 
 // ─── App ──────────────────────────────────────────────────────────────────────
@@ -223,6 +239,18 @@ export default function App() {
     const [loginEmail, setLoginEmail] = useState<string>('');
     const [loginPassword, setLoginPassword] = useState<string>('');
     const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
+
+    // Community Q&A Panel State
+    const [showCommunityPanel, setShowCommunityPanel] = useState<boolean>(false);
+    const [communityQuestions, setCommunityQuestions] = useState<any[]>([]);
+    const [isCommunityLoading, setIsCommunityLoading] = useState<boolean>(false);
+    const [selectedQuestion, setSelectedQuestion] = useState<any>(null);
+    const [newQTitle, setNewQTitle] = useState<string>('');
+    const [newQBody, setNewQBody] = useState<string>('');
+    const [newAnswer, setNewAnswer] = useState<string>('');
+    const [isPostingQ, setIsPostingQ] = useState<boolean>(false);
+    const [isPostingA, setIsPostingA] = useState<boolean>(false);
+    const [showAskForm, setShowAskForm] = useState<boolean>(false);
 
     // Publishing State
     const [showPublishModal, setShowPublishModal] = useState<boolean>(false);
@@ -1142,6 +1170,67 @@ export default function App() {
         if (terminalRef.current) terminalRef.current.write(`\\r\\n[Auth] Logged out.\\r\\n`);
     };
 
+    // ── Community Q&A ─────────────────────────────────────────────────────────────
+    const COMMUNITY_API = process.env.NODE_ENV === 'development'
+        ? 'http://localhost:3001/api/community'
+        : 'https://getquanta.online/api/community';
+
+    const fetchCommunityQuestions = async () => {
+        setIsCommunityLoading(true);
+        try {
+            const res = await fetch(COMMUNITY_API);
+            const data = await res.json();
+            if (Array.isArray(data)) setCommunityQuestions(data);
+        } catch { }
+        finally { setIsCommunityLoading(false); }
+    };
+
+    const handleOpenCommunity = () => {
+        setShowCommunityPanel(v => !v);
+        if (!showCommunityPanel) fetchCommunityQuestions();
+    };
+
+    const handlePostQuestion = async () => {
+        if (!quantaAuthToken || !quantaUser) { return; }
+        if (!newQTitle.trim() || !newQBody.trim()) return;
+        setIsPostingQ(true);
+        try {
+            const res = await fetch(COMMUNITY_API, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${quantaAuthToken}` },
+                body: JSON.stringify({ title: newQTitle, preview: newQBody, content: newQBody, tags: [] })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message);
+            setNewQTitle('');
+            setNewQBody('');
+            setShowAskForm(false);
+            if (terminalRef.current) terminalRef.current.write(`\\r\\n[Community] Question posted! Awaiting admin approval.\\r\\n`);
+            await fetchCommunityQuestions();
+        } catch (err: any) {
+            if (terminalRef.current) terminalRef.current.write(`\\r\\n[Community Error] ${err.message}\\r\\n`);
+        } finally { setIsPostingQ(false); }
+    };
+
+    const handlePostAnswer = async () => {
+        if (!quantaAuthToken || !selectedQuestion || !newAnswer.trim()) return;
+        setIsPostingA(true);
+        try {
+            const res = await fetch(`${COMMUNITY_API}/${selectedQuestion._id}/answer`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${quantaAuthToken}` },
+                body: JSON.stringify({ answer: newAnswer })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message);
+            setSelectedQuestion(data);
+            setNewAnswer('');
+            setCommunityQuestions(prev => prev.map(q => q._id === data._id ? data : q));
+        } catch (err: any) {
+            if (terminalRef.current) terminalRef.current.write(`\\r\\n[Community Error] ${err.message}\\r\\n`);
+        } finally { setIsPostingA(false); }
+    };
+
     return (
         <div className="app">
 
@@ -1210,6 +1299,13 @@ export default function App() {
                         <div className="vs-activity-icon" onClick={() => setShowPublishModal(true)} title="Publish to Quanta Blog">
                             <IconPublish />
                         </div>
+                        <div
+                            className={`vs-activity-icon ${showCommunityPanel ? 'active' : ''}`}
+                            onClick={handleOpenCommunity}
+                            title="Community Q&A"
+                        >
+                            <IconCommunity />
+                        </div>
                         <div className="vs-activity-icon" onClick={() => setShowSettingsModal(true)} title="Settings">
                             <IconSettings />
                         </div>
@@ -1226,6 +1322,146 @@ export default function App() {
                         onOpenFile={handleOpenFileFromSidebar}
                         onOpenFolder={handleOpenFolder}
                     />
+                )}
+
+                {/* ── Community Q&A Panel ── */}
+                {showCommunityPanel && (
+                    <div style={{
+                        width: 320, flexShrink: 0, background: '#1e1e1e', borderRight: '1px solid #2d2d2d',
+                        display: 'flex', flexDirection: 'column', overflow: 'hidden', height: '100%'
+                    }}>
+                        {/* Panel Header */}
+                        <div style={{ padding: '10px 14px', borderBottom: '1px solid #2d2d2d', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: '#ccc', letterSpacing: 1 }}>COMMUNITY Q&A</span>
+                                {quantaUser && <span style={{ marginLeft: 8, fontSize: 10, color: '#89d185' }}>● {quantaUser.username}</span>}
+                            </div>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                                {quantaUser && (
+                                    <button
+                                        onClick={() => { setShowAskForm(v => !v); setSelectedQuestion(null); }}
+                                        style={{ background: '#4f46e5', border: 'none', borderRadius: 4, color: '#fff', fontSize: 10, padding: '3px 8px', cursor: 'pointer' }}
+                                        title="Ask a Question"
+                                    >+ Ask</button>
+                                )}
+                                <button onClick={() => fetchCommunityQuestions()} style={{ background: 'transparent', border: 'none', color: '#888', cursor: 'pointer', fontSize: 14 }} title="Refresh">↻</button>
+                            </div>
+                        </div>
+
+                        {/* Ask Question Form */}
+                        {showAskForm && quantaUser && (
+                            <div style={{ padding: '10px 14px', borderBottom: '1px solid #2d2d2d', background: '#181818' }}>
+                                <div style={{ fontSize: 11, color: '#c678dd', marginBottom: 6, fontWeight: 600 }}>ASK A QUESTION</div>
+                                <input
+                                    type="text"
+                                    placeholder="Question title..."
+                                    value={newQTitle}
+                                    onChange={e => setNewQTitle(e.target.value)}
+                                    style={{ width: '100%', background: '#252525', border: '1px solid #3c3c3c', borderRadius: 4, color: '#ccc', fontSize: 12, padding: '5px 8px', marginBottom: 6, boxSizing: 'border-box' }}
+                                />
+                                <textarea
+                                    placeholder="Describe your question..."
+                                    value={newQBody}
+                                    onChange={e => setNewQBody(e.target.value)}
+                                    rows={3}
+                                    style={{ width: '100%', background: '#252525', border: '1px solid #3c3c3c', borderRadius: 4, color: '#ccc', fontSize: 12, padding: '5px 8px', resize: 'none', boxSizing: 'border-box', marginBottom: 6 }}
+                                />
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                    <button
+                                        onClick={handlePostQuestion}
+                                        disabled={isPostingQ || !newQTitle.trim() || !newQBody.trim()}
+                                        style={{ flex: 1, background: '#4f46e5', border: 'none', borderRadius: 4, color: '#fff', fontSize: 11, padding: '5px 0', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
+                                    >
+                                        <IconSend /> {isPostingQ ? 'Posting...' : 'Post Question'}
+                                    </button>
+                                    <button onClick={() => setShowAskForm(false)} style={{ background: 'transparent', border: '1px solid #3c3c3c', borderRadius: 4, color: '#888', fontSize: 11, padding: '5px 8px', cursor: 'pointer' }}>Cancel</button>
+                                </div>
+                                <p style={{ fontSize: 10, color: '#666', marginTop: 6 }}>⚠ Questions require admin approval before appearing publicly.</p>
+                            </div>
+                        )}
+
+                        {!quantaUser && (
+                            <div style={{ padding: '12px 14px', background: '#181818', borderBottom: '1px solid #2d2d2d' }}>
+                                <p style={{ fontSize: 11, color: '#888', margin: 0 }}>Login to ask questions and post answers.</p>
+                                <button onClick={() => setShowLoginModal(true)} style={{ marginTop: 6, background: '#4f46e5', border: 'none', borderRadius: 4, color: '#fff', fontSize: 11, padding: '4px 10px', cursor: 'pointer' }}>Login</button>
+                            </div>
+                        )}
+
+                        {/* Question List / Selected Question */}
+                        <div style={{ flex: 1, overflowY: 'auto' }}>
+                            {selectedQuestion ? (
+                                /* Answer View */
+                                <div style={{ padding: 12 }}>
+                                    <button onClick={() => setSelectedQuestion(null)} style={{ background: 'transparent', border: 'none', color: '#7c3aed', fontSize: 11, cursor: 'pointer', marginBottom: 8, padding: 0 }}>← Back to Questions</button>
+                                    <div style={{ fontWeight: 600, fontSize: 13, color: '#ccc', marginBottom: 6 }}>{selectedQuestion.title}</div>
+                                    <div style={{ fontSize: 11, color: '#8b949e', marginBottom: 10 }}>{selectedQuestion.preview || selectedQuestion.content}</div>
+
+                                    {/* Answers list */}
+                                    <div style={{ fontSize: 11, color: '#7c3aed', fontWeight: 600, marginBottom: 6 }}>
+                                        {(selectedQuestion.answers || []).length} Answer{(selectedQuestion.answers || []).length !== 1 ? 's' : ''}
+                                    </div>
+                                    {(selectedQuestion.answers || []).length === 0 ? (
+                                        <div style={{ fontSize: 11, color: '#666', marginBottom: 12 }}>No answers yet. Be the first!</div>
+                                    ) : (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+                                            {selectedQuestion.answers.map((a: any, i: number) => (
+                                                <div key={i} style={{ background: '#252525', borderRadius: 6, padding: '8px 10px', borderLeft: '3px solid #4f46e5' }}>
+                                                    <div style={{ fontSize: 11, color: '#e6edf3', marginBottom: 4 }}>{a.content}</div>
+                                                    <div style={{ fontSize: 10, color: '#666' }}>— {a.username} · {a.createdAt ? new Date(a.createdAt).toLocaleDateString() : 'just now'}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {/* Post answer */}
+                                    {quantaUser && (
+                                        <div>
+                                            <div style={{ fontSize: 11, color: '#89d185', fontWeight: 600, marginBottom: 6 }}>Your Answer</div>
+                                            <textarea
+                                                placeholder="Write your answer..."
+                                                value={newAnswer}
+                                                onChange={e => setNewAnswer(e.target.value)}
+                                                rows={3}
+                                                style={{ width: '100%', background: '#252525', border: '1px solid #3c3c3c', borderRadius: 4, color: '#ccc', fontSize: 12, padding: '6px 8px', resize: 'none', boxSizing: 'border-box', marginBottom: 6 }}
+                                            />
+                                            <button
+                                                onClick={handlePostAnswer}
+                                                disabled={isPostingA || !newAnswer.trim()}
+                                                style={{ background: '#22c55e', border: 'none', borderRadius: 4, color: '#fff', fontSize: 11, padding: '5px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                                            >
+                                                <IconSend /> {isPostingA ? 'Posting...' : 'Post Answer'}
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            ) : (
+                                /* Questions list */
+                                isCommunityLoading ? (
+                                    <div style={{ padding: 20, textAlign: 'center', color: '#666', fontSize: 12 }}>Loading...</div>
+                                ) : communityQuestions.length === 0 ? (
+                                    <div style={{ padding: 20, textAlign: 'center', color: '#666', fontSize: 12 }}>No questions yet. {quantaUser ? 'Be the first to ask!' : 'Login to ask.'}</div>
+                                ) : (
+                                    communityQuestions.map((q: any) => (
+                                        <div
+                                            key={q._id}
+                                            onClick={() => { setSelectedQuestion(q); setShowAskForm(false); }}
+                                            style={{ padding: '10px 14px', borderBottom: '1px solid #282828', cursor: 'pointer', transition: 'background 0.15s' }}
+                                            onMouseEnter={e => (e.currentTarget.style.background = '#252525')}
+                                            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                                        >
+                                            <div style={{ fontSize: 12, color: '#c678dd', fontWeight: 500, marginBottom: 4, lineHeight: '1.4' }}>{q.title}</div>
+                                            <div style={{ fontSize: 10, color: '#8b949e', lineHeight: '1.4', marginBottom: 6 }}>{q.preview?.slice(0, 80)}{(q.preview?.length > 80) ? '…' : ''}</div>
+                                            <div style={{ display: 'flex', gap: 8, fontSize: 10, color: '#666' }}>
+                                                <span>↑ {q.votes}</span>
+                                                <span>💬 {(q.answers || []).length}</span>
+                                                <span>{q.isAnswered ? '✅ Answered' : '❓ Open'}</span>
+                                            </div>
+                                        </div>
+                                    ))
+                                )
+                            )}
+                        </div>
+                    </div>
                 )}
 
                 {/* Practice Left Pane (LeetCode Problem) */}

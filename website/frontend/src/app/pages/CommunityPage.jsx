@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Search, Plus, TrendingUp, Award, BookOpen } from "lucide-react";
+import { Search, Plus, TrendingUp, Award, BookOpen, X } from "lucide-react";
 import { QuestionCard } from "../components/QuestionCard";
 import { getCommunityQuestions, createQuestion, voteQuestion } from "../../api/community";
 import { useAuth } from "../../context/AuthContext";
@@ -37,6 +37,12 @@ export function CommunityPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [showAskForm, setShowAskForm] = useState(false);
     const [newQuestion, setNewQuestion] = useState({ title: "", preview: "", tags: "" });
+    const [toast, setToast] = useState(null); // { message, type: 'success' | 'error' | 'info' }
+
+    const showToast = (message, type = 'info') => {
+        setToast({ message, type });
+        setTimeout(() => setToast(null), 4000);
+    };
 
     const filters = [
         { id: "all", label: "All Questions" },
@@ -65,15 +71,16 @@ export function CommunityPage() {
 
     const handleAskQuestion = async (e) => {
         e.preventDefault();
-        if (!user) { alert("Please login to ask a question!"); return; }
+        if (!user) { showToast("Please login to ask a question!", "error"); return; }
         try {
             const created = await createQuestion({
                 title: newQuestion.title,
                 preview: newQuestion.preview,
-                content: newQuestion.preview, // Use preview for content if not separated
+                content: newQuestion.preview,
                 tags: newQuestion.tags.split(",").map((t) => t.trim()).filter(Boolean),
             });
             setQuestions([created, ...questions]);
+            showToast("✅ Question submitted! It will appear after admin approval.", "success");
         } catch {
             const fake = {
                 _id: Date.now().toString(),
@@ -85,6 +92,7 @@ export function CommunityPage() {
                 isAnswered: false,
             };
             setQuestions([fake, ...questions]);
+            showToast("✅ Question submitted for approval!", "success");
         }
         setNewQuestion({ title: "", preview: "", tags: "" });
         setShowAskForm(false);
@@ -101,6 +109,18 @@ export function CommunityPage() {
 
     return (
         <div className="flex flex-col lg:flex-row gap-8">
+            {/* Toast Notification */}
+            {toast && (
+                <div
+                    className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-2xl text-sm font-medium transition-all ${toast.type === 'success' ? 'bg-emerald-900/90 border border-emerald-500/40 text-emerald-100' :
+                            toast.type === 'error' ? 'bg-red-900/90 border border-red-500/40 text-red-100' :
+                                'bg-[#1a1a2e]/90 border border-[#22d3ee]/40 text-[#22d3ee]'
+                        }`}
+                >
+                    <span>{toast.message}</span>
+                    <button onClick={() => setToast(null)} className="ml-2 opacity-60 hover:opacity-100"><X className="w-4 h-4" /></button>
+                </div>
+            )}
             {/* Main Content */}
             <div className="flex-1 w-full min-w-0 space-y-8">
                 {/* Header */}
@@ -111,7 +131,7 @@ export function CommunityPage() {
                             <p className="text-muted-foreground">Find answers, share knowledge, build with Quanta.</p>
                         </div>
                         <button
-                            onClick={() => user ? setShowAskForm(!showAskForm) : alert("Please login to ask a question!")}
+                            onClick={() => user ? setShowAskForm(!showAskForm) : showToast("Please login to ask a question!", "error")}
                             className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-gradient-to-r from-[#22d3ee] to-[#a855f7] text-background font-medium hover:shadow-lg hover:shadow-[#22d3ee]/25 transition-all hover:scale-105 whitespace-nowrap"
                         >
                             <Plus className="w-4 h-4" />
