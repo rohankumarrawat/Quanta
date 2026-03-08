@@ -48,6 +48,16 @@ function createWindow() {
 
     mainWindow.on('closed', () => {
         mainWindow = null;
+        if (ptyProcess) {
+            ptyProcess.kill();
+            ptyProcess = null;
+        }
+    });
+
+    // Init the PTY after the window content has loaded to avoid
+    // crashing the main process if node-pty native bindings fail
+    mainWindow.webContents.once('did-finish-load', () => {
+        initPty();
     });
 }
 
@@ -79,23 +89,35 @@ const shell = getShellPath();
 let ptyProcess: pty.IPty | null = null;
 
 function initPty() {
-    ptyProcess = pty.spawn(shell, [], {
-        name: 'xterm-color',
-        cols: 80,
-        rows: 24,
-        cwd: process.env.HOME,
-        env: process.env as any
-    });
+    try {
+        ptyProcess = pty.spawn(shell, [], {
+            name: 'xterm-color',
+            cols: 80,
+            rows: 24,
+            cwd: process.env.HOME || os.homedir(),
+            env: process.env as any
+        });
 
-    ptyProcess.onData((data) => {
+        ptyProcess.onData((data) => {
+            if (mainWindow) {
+                mainWindow.webContents.send('terminal:data', data);
+            }
+        });
+    } catch (err: any) {
+        console.warn('[PTY] Failed to spawn shell:', err?.message || err);
+        // Notify the renderer terminal of the error gracefully
         if (mainWindow) {
-            mainWindow.webContents.send('terminal:data', data);
+            mainWindow.webContents.send(
+                'terminal:data',
+                `\r\n\x1b[33m[Terminal] Could not start shell (${shell}). Error: ${err?.message || err}\r\n` +
+                `[Terminal] The editor will still work — you can run code using the ▶ Run button.\x1b[0m\r\n`
+            );
         }
-    });
+    }
 }
 
-// Initialize PTY immediately
-initPty();
+// PTY is now initialized lazily after the window content loads
+// to avoid posix_spawnp failures in the main process before the app is ready
 
 ipcMain.on('terminal:input', (_, data) => {
     if (ptyProcess) {
